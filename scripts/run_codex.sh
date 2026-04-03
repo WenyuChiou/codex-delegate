@@ -1,56 +1,38 @@
 #!/usr/bin/env bash
-# run_codex.sh — Bash wrapper for Codex CLI / Gemini CLI
-#
-# Handles:
-#   - UTF-8 prompt encoding
-#   - CJK auto-routing to Gemini CLI
-#   - File-based completion signaling (log file + .done sentinel)
-#   - Background-safe execution (each invocation is independent)
-#
-# Environment variables (configure these instead of hardcoding):
-#   REPO_ROOT    — path to repo root (default: current directory)
-#   CODEX_MODEL  — Codex model (default: gpt-5.4)
-#   CODEX_PATH   — path to codex binary (default: codex, assumes on PATH)
-#   GEMINI_PATH  — path to gemini binary (default: gemini, assumes on PATH)
-#   OPENAI_API_KEY  — required for Codex
-#   GEMINI_API_KEY  — required for Gemini
+# run_codex.sh — Run Codex CLI with automatic fallback to Claude on quota errors
 #
 # Usage:
-#   ./run_codex.sh --prompt "Read .ai/codex_task_foo.md and execute." \
-#                  --repo /path/to/repo \
-#                  --log-file .ai/log_foo.txt
+#   ./run_codex.sh --prompt "your task here" [options]
 #
-#   # CJK content — auto-routes to Gemini, or force with --use-gemini
-#   ./run_codex.sh --prompt "生成分析報告" --log-file .ai/log.txt
+# Options:
+#   --prompt <text>      Task prompt (required)
+#   --repo <path>        Repo working directory (default: ~/mispricing-engine)
+#   --model <id>         Codex model (default: gpt-5.4)
+#   --output-file <path> Codex -o output file (optional)
+#   --log-file <path>    Where to write output log (default: <repo>/.ai/codex_output.txt)
+#   --synchronous        Run inline, not backgrounded (default; recommended for Claude Code)
 #
-#   # Parallel execution (background)
-#   ./run_codex.sh --prompt "Read .ai/task_a.md and execute." --log-file .ai/log_a.txt &
-#   ./run_codex.sh --prompt "Read .ai/task_b.md and execute." --log-file .ai/log_b.txt &
-#   wait
+# Fallback chain: Codex → .fallback_claude sentinel (Claude handles it)
+# Exit codes: 0 = success or fallback sentinel written, 1 = hard failure
 
 set -euo pipefail
 
-# Defaults
+# ── Defaults ──────────────────────────────────────────────────────────────────
 PROMPT=""
-REPO="${REPO_ROOT:-$(pwd)}"
-MODEL="${CODEX_MODEL:-gpt-5.4}"
+REPO="${HOME}/mispricing-engine"
+MODEL="gpt-5.4"
 OUTPUT_FILE=""
 LOG_FILE=""
-USE_GEMINI=false
-CODEX_BIN="${CODEX_PATH:-codex}"
-GEMINI_BIN="${GEMINI_PATH:-gemini}"
 
-# Parse arguments
+# ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --prompt|-p)       PROMPT="$2";      shift 2 ;;
-        --repo|-C)         REPO="$2";        shift 2 ;;
-        --model|-m)        MODEL="$2";       shift 2 ;;
-        --output-file|-o)  OUTPUT_FILE="$2"; shift 2 ;;
-        --log-file|-l)     LOG_FILE="$2";    shift 2 ;;
-        --use-gemini)      USE_GEMINI=true;  shift   ;;
-        --codex-path)      CODEX_BIN="$2";  shift 2 ;;
-        --gemini-path)     GEMINI_BIN="$2"; shift 2 ;;
+        --prompt)       PROMPT="$2";      shift 2 ;;
+        --repo)         REPO="$2";        shift 2 ;;
+        --model)        MODEL="$2";       shift 2 ;;
+        --output-file)  OUTPUT_FILE="$2"; shift 2 ;;
+        --log-file)     LOG_FILE="$2";    shift 2 ;;
+        --synchronous)  shift ;;          # no-op: always synchronous
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -60,58 +42,81 @@ if [[ -z "$PROMPT" ]]; then
     exit 1
 fi
 
-# Resolve log file path
+# ── Paths ─────────────────────────────────────────────────────────────────────
 AI_DIR="$REPO/.ai"
-if [[ -z "$LOG_FILE" ]]; then
-    LOG_FILE="$AI_DIR/codex_output.txt"
-fi
-DONE_FILE="$LOG_FILE.done"
-ERROR_FILE="$LOG_FILE.error"
+LOG_PATH="${LOG_FILE:-$AI_DIR/codex_output.txt}"
+DONE_PATH="$LOG_PATH.done"
+ERROR_PATH="$LOG_PATH.error"
+FALLBACK_PATH="$LOG_PATH.fallback_claude"
 
-# Ensure .ai directory exists
 mkdir -p "$AI_DIR"
 
-# Auto-detect CJK characters (Unicode ranges: CJK Unified, Hiragana/Katakana, Hangul)
-if [[ "$USE_GEMINI" == "false" ]]; then
-    if echo "$PROMPT" | grep -qP '[\x{4e00}-\x{9fff}\x{3040}-\x{30ff}\xac00-\xd7af]' 2>/dev/null || \
-       echo "$PROMPT" | python3 -c "
-import sys, re
-text = sys.stdin.read()
-if re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', text):
-    sys.exit(0)
-sys.exit(1)
-" 2>/dev/null; then
-        echo "Prompt contains CJK characters — routing to Gemini CLI" >&2
-        USE_GEMINI=true
-    fi
-fi
+# Clean up stale sentinel files from previous runs
+rm -f "$FALLBACK_PATH" "$DONE_PATH" "$ERROR_PATH"
 
-# Write prompt to temp file to avoid argument encoding issues
-PROMPT_FILE="$(mktemp /tmp/codex_prompt_XXXXXX.txt)"
-printf '%s' "$PROMPT" > "$PROMPT_FILE"
-trap 'rm -f "$PROMPT_FILE"' EXIT
+# ── Quota / rate-limit detection ──────────────────────────────────────────────
+is_quota_error() {
+    local output="$1"
+    local exit_code="$2"
 
-run_task() {
-    if [[ "$USE_GEMINI" == "true" ]]; then
-        SAFE_PROMPT="$(cat "$PROMPT_FILE")"
-        "$GEMINI_BIN" --yolo -p "$SAFE_PROMPT" 2>&1
-    else
-        SAFE_PROMPT="$(cat "$PROMPT_FILE")"
-        CODEX_ARGS=("exec" "--full-auto" "-C" "$REPO" "-m" "$MODEL")
-        if [[ -n "$OUTPUT_FILE" ]]; then
-            CODEX_ARGS+=("-o" "$OUTPUT_FILE")
+    [[ "$exit_code" -eq 429 ]] && return 0
+
+    local patterns=(
+        "quota exceeded"
+        "rate limit"
+        "rate_limit"
+        "quota_exceeded"
+        "insufficient_quota"
+        "too many requests"
+        "RateLimitError"
+        "exceeded your current quota"
+        "429"
+    )
+    for p in "${patterns[@]}"; do
+        if echo "$output" | grep -qi "$p"; then
+            return 0
         fi
-        CODEX_ARGS+=("$SAFE_PROMPT")
-        "$CODEX_BIN" "${CODEX_ARGS[@]}" 2>&1
-    fi
+    done
+    return 1
 }
 
-# Execute and signal completion
-if run_task > "$LOG_FILE"; then
-    echo "DONE|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DONE_FILE"
-else
-    EXIT_CODE=$?
-    echo "Task failed with exit code $EXIT_CODE" > "$ERROR_FILE"
-    echo "Error: task failed — see $ERROR_FILE" >&2
-    exit $EXIT_CODE
+# ── Run Codex ─────────────────────────────────────────────────────────────────
+PROMPT_FILE="$(mktemp /tmp/codex_prompt_XXXXXX.txt)"
+printf '%s' "$PROMPT" > "$PROMPT_FILE"
+
+CODEX_ARGS=("exec" "--full-auto" "-C" "$REPO" "-m" "$MODEL")
+[[ -n "$OUTPUT_FILE" ]] && CODEX_ARGS+=("-o" "$OUTPUT_FILE")
+CODEX_ARGS+=("$(cat "$PROMPT_FILE")")
+rm -f "$PROMPT_FILE"
+
+CODEX_BIN="${CODEX_PATH:-codex}"
+OUTPUT=""
+EXIT_CODE=0
+
+# Capture both stdout and stderr
+OUTPUT=$("$CODEX_BIN" "${CODEX_ARGS[@]}" 2>&1) || EXIT_CODE=$?
+
+if is_quota_error "$OUTPUT" "$EXIT_CODE"; then
+    echo "Codex quota/rate-limit exceeded — creating .fallback_claude sentinel for Claude to handle" >&2
+    {
+        echo "[CODEX QUOTA EXCEEDED at $(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+        echo "$OUTPUT"
+    } > "$LOG_PATH"
+    echo "ALL_QUOTA_EXCEEDED|$(date -u +%Y-%m-%dT%H:%M:%SZ)"  > "$ERROR_PATH"
+    echo "FALLBACK_TO_CLAUDE|$(date -u +%Y-%m-%dT%H:%M:%SZ)"  > "$FALLBACK_PATH"
+    echo "FALLBACK|$(date -u +%Y-%m-%dT%H:%M:%SZ)"            > "$DONE_PATH"
+    exit 0
 fi
+
+if [[ "$EXIT_CODE" -ne 0 ]]; then
+    echo "Codex hard failure (exit $EXIT_CODE)" >&2
+    echo "$OUTPUT" > "$ERROR_PATH"
+    exit 1
+fi
+
+# Success
+{
+    echo "[MODEL_USED: codex/$MODEL]"
+    echo "$OUTPUT"
+} > "$LOG_PATH"
+echo "DONE|codex/$MODEL|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DONE_PATH"

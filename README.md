@@ -1,6 +1,6 @@
 # codex-delegate — Claude Code Skill
 
-Delegate token-heavy coding tasks from Claude Code (or Cowork) to **Codex CLI** (OpenAI) or **Gemini CLI**, saving Claude tokens for planning, evaluation, and review.
+Delegate token-heavy coding tasks from Claude Code to **Codex CLI** (OpenAI), saving Claude tokens for planning, evaluation, and review.
 
 ---
 
@@ -8,13 +8,14 @@ Delegate token-heavy coding tasks from Claude Code (or Cowork) to **Codex CLI** 
 
 When Claude encounters a task requiring 100+ lines of code — batch file edits, test generation, boilerplate, migrations — it writes a structured context file and hands off execution to Codex CLI. Claude then reviews the output and fixes the remaining 10–20%.
 
-**Result:** Claude spends tokens on judgment, not bulk generation. Tasks that would exhaust a context window finish in the background while Claude moves on.
+If Codex hits a quota or rate limit, the helper script automatically creates a `.fallback_claude` sentinel file so Claude knows to handle the task itself.
+
+**Result:** Claude spends tokens on judgment, not bulk generation. Tasks that would exhaust a context window finish quickly while Claude moves on.
 
 ---
 
 ## Prerequisites
 
-### Required
 - **Codex CLI** (OpenAI):
   ```bash
   npm i -g @openai/codex
@@ -22,13 +23,7 @@ When Claude encounters a task requiring 100+ lines of code — batch file edits,
   ```
   Requires an OpenAI API key (`OPENAI_API_KEY` env var).
 
-### Optional
-- **Gemini CLI** (for CJK/Chinese content and large-context tasks):
-  ```bash
-  npm i -g @google/gemini-cli
-  gemini --version  # verify
-  ```
-  Requires a Google AI API key (`GEMINI_API_KEY` env var).
+> **Note on Gemini:** Previous versions of this skill included Gemini CLI as a fallback provider and for CJK/Chinese content routing. This version uses **Codex only**. If Codex quota is exceeded, the script signals Claude to handle the task directly (see [Quota Fallback](#quota-fallback)). For CJK content, invoke Gemini manually if needed.
 
 ---
 
@@ -38,18 +33,14 @@ When Claude encounters a task requiring 100+ lines of code — batch file edits,
 
 1. Copy the skill into your project's `.claude/skills/` directory:
    ```bash
-   mkdir -p .claude/skills/codex-delegate
+   mkdir -p .claude/skills/codex-delegate/scripts
    cp path/to/codex-delegate/SKILL.md .claude/skills/codex-delegate/
-   cp path/to/codex-delegate/scripts/ .claude/skills/codex-delegate/scripts/ -r
+   cp path/to/codex-delegate/scripts/run_codex.ps1 .claude/skills/codex-delegate/scripts/
+   cp path/to/codex-delegate/scripts/run_codex.sh  .claude/skills/codex-delegate/scripts/
+   chmod +x .claude/skills/codex-delegate/scripts/run_codex.sh
    ```
 
 2. Add delegation rules to your project's `CLAUDE.md` (see [CLAUDE.md Setup](#claudemd-setup) below).
-
-### Cowork
-
-1. Place the skill files anywhere accessible to your Cowork workspace.
-2. Reference `SKILL.md` in your Cowork system prompt or project instructions.
-3. Use `run_codex.ps1` (Windows) or `run_codex.sh` (Mac/Linux) as the execution helper.
 
 ---
 
@@ -61,9 +52,9 @@ Add these rules to your project's `CLAUDE.md` so delegation happens automaticall
 ## Delegation Rules (IMPORTANT)
 - Read `.claude/skills/codex-delegate/SKILL.md` before any task with 100+ lines of code changes.
 - Token-heavy Python/backend work (tests, boilerplate, batch edits, migrations) → delegate to Codex CLI
-- Chinese/CJK content (reports, comments, translated docs) → auto-routes to Gemini CLI
 - Architecture decisions, bug diagnosis, security, multi-subsystem coupling → keep in Claude
-- Claude's role: plan → write context file → launch Codex/Gemini → review output → fix remaining issues
+- Claude's role: plan → write context file → launch Codex → review output → fix remaining issues
+- If `.fallback_claude` sentinel appears after launching Codex, do the task yourself immediately
 ```
 
 ---
@@ -93,61 +84,75 @@ Add these rules to your project's `CLAUDE.md` so delegation happens automaticall
 
 ---
 
-## Usage Scenarios
+## Usage
 
-### Claude Code: direct `codex exec` in Bash
+### Claude Code: synchronous execution (RECOMMENDED)
 
-Claude writes a context file, then calls Codex directly:
+Call the helper script **directly** from Bash — never via `Start-Process`. Direct invocation is the only reliable way to ensure Codex file writes persist from within a Claude Code session.
 
 ```bash
-# Claude writes .ai/codex_task_tests.md with full context
-# Then launches Codex:
+# Write a context file first (see Core Workflow below)
+# Then launch Codex synchronously:
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_tests.md and execute all instructions." \
+  --log-file .ai/codex_log_tests.txt
+
+# Check for quota fallback sentinel
+if [ -f ".ai/codex_log_tests.txt.fallback_claude" ]; then
+    echo "Codex quota exceeded — handling task directly"
+    # Do the work yourself here
+elif [ -f ".ai/codex_log_tests.txt.done" ]; then
+    cat ".ai/codex_log_tests.txt"
+fi
+```
+
+PowerShell equivalent (call ps1 directly — no `Start-Process` wrapper):
+```powershell
+& ".claude\skills\codex-delegate\scripts\run_codex.ps1" `
+    -Prompt "Read .ai/codex_task_tests.md and execute all instructions." `
+    -LogFile ".ai\codex_log_tests.txt"
+
+if (Test-Path ".ai\codex_log_tests.txt.fallback_claude") {
+    Write-Host "Codex quota exceeded — handling task directly"
+} elseif (Test-Path ".ai\codex_log_tests.txt.done") {
+    Get-Content ".ai\codex_log_tests.txt"
+}
+```
+
+### Direct `codex exec` (short tasks)
+For short, focused tasks where you don't need file-based signaling:
+```bash
 codex exec --full-auto -C /path/to/repo -m gpt-5.4 \
   "Read .ai/codex_task_tests.md and execute all instructions."
-
-# Check result
 git diff
 ```
 
-For parallel independent tasks (e.g. two unrelated modules):
-```bash
-codex exec --full-auto -C /repo "Read .ai/task_a.md and execute." &
-codex exec --full-auto -C /repo "Read .ai/task_b.md and execute." &
-wait
+---
+
+## Quota Fallback
+
+The helper scripts automatically detect Codex API quota exhaustion and signal Claude to handle the task itself.
+
+### Fallback chain
+```
+Codex CLI → .fallback_claude sentinel (Claude handles it)
 ```
 
-### Cowork (Windows): via PowerShell MCP
+### Detection patterns
+The scripts check for:
+- Exit code `429`
+- Output/stderr containing: `"quota exceeded"`, `"rate limit"`, `"insufficient_quota"`, `"too many requests"`, `"RateLimitError"`, `"429"`
 
-**Read-only analysis (most reliable from Cowork):**
-```powershell
-$script = "C:\path\to\codex-delegate\scripts\run_codex.ps1"
-Start-Process powershell -ArgumentList `
-  "-ExecutionPolicy Bypass -File `"$script`" -Prompt `"Read .ai/codex_task_foo.md and analyze.`" -LogFile `"$REPO\.ai\log_foo.txt`"" `
-  -WindowStyle Hidden
+### Sentinel files written on quota error
+| File | Content | Meaning |
+|------|---------|---------|
+| `<log>.error` | `ALL_QUOTA_EXCEEDED\|<timestamp>` | Quota was the failure cause |
+| `<log>.fallback_claude` | `FALLBACK_TO_CLAUDE\|<timestamp>` | Claude should do the task |
+| `<log>.done` | `FALLBACK\|<timestamp>` | Signals completion to any polling loop |
 
-# Poll for completion
-while (!(Test-Path "$REPO\.ai\log_foo.txt.done")) { Start-Sleep 10 }
-Get-Content "$REPO\.ai\log_foo.txt"
-```
-
-**File modifications (recommended: delegate to a Claude Code task):**
-```
-start_code_task: "Run codex exec --full-auto -C . -m gpt-5.4
-  'Read .ai/codex_task_foo.md and execute.' then verify with git diff and commit."
-```
-
-> **Why the indirection?** Codex's `--full-auto` sandbox only persists writes when called from inside an active Claude Code session, not from external PowerShell. Delegating to `start_code_task` gives Codex proper filesystem access.
-
-### Scheduled tasks / automation
-
-Embed Codex calls in cron jobs or CI pipelines:
-```bash
-# In a scheduled shell script:
-cd /repo
-codex exec --full-auto -C . -m gpt-5.4 \
-  "Read .ai/codex_task_weekly_report.md and execute." \
-  -o .ai/codex_result_report.md
-```
+### Output tagging
+On success, the log file begins with `[MODEL_USED: codex/<model>]`.
+On quota fallback, the log begins with `[CODEX QUOTA EXCEEDED at <timestamp>]`.
 
 ---
 
@@ -163,7 +168,6 @@ Save to `.ai/codex_task_<name>.md` (gitignored by default):
 # Task: <descriptive name>
 
 ## Context
-- Repo root: (Codex reads from its working directory -C flag)
 - Key files to read: src/module_a.py, src/module_b.py
 - Key files to modify: tests/test_module_a.py
 
@@ -171,57 +175,89 @@ Save to `.ai/codex_task_<name>.md` (gitignored by default):
 1. Read the implementation in src/module_a.py
 2. Generate pytest unit tests covering all public functions
 3. Use existing test style from tests/test_existing.py as reference
-4. Add fixtures for common setup
 
 ## Constraints
 - Do not modify files outside the listed paths
-- Follow existing code style (tabs vs spaces, naming conventions)
-- Each test function must have a docstring
+- Follow existing code style exactly
 
 ## Output
 - Write tests to tests/test_module_a.py
-- Write a summary of what was generated to .ai/codex_result_tests.md
+- Write a summary to .ai/codex_result_tests.md
 ```
 
-### Step 2 — Launch Codex
-
+### Step 2 — Launch Codex via helper script
 ```bash
-codex exec --full-auto -C /repo -m gpt-5.4 \
-  "Read .ai/codex_task_tests.md and execute all instructions inside."
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_tests.md and execute all instructions." \
+  --log-file .ai/codex_log_tests.txt
 ```
 
-### Step 3 — Claude reviews
-
-- Read the modified files
-- Run tests to verify they pass
-- If 80%+ correct: fix remaining issues directly
-- If fundamentally wrong: update context file and re-run
-
----
-
-## CJK / Chinese Auto-routing
-
-`run_codex.ps1` (and `run_codex.sh`) **auto-detect CJK characters** in the prompt and silently reroute to Gemini CLI. This avoids a known issue where Codex CLI on Windows silently truncates or garbles non-ASCII shell arguments.
-
-You can also force Gemini explicitly:
-```powershell
-# PowerShell
-.\run_codex.ps1 -Prompt "生成分析報告" -UseGemini -LogFile ".ai\log.txt"
-```
+### Step 3 — Check for fallback, then review
 ```bash
-# Bash
-./run_codex.sh --prompt "生成分析報告" --use-gemini --log-file ".ai/log.txt"
+if [ -f ".ai/codex_log_tests.txt.fallback_claude" ]; then
+    echo "Quota exceeded — doing task myself"
+elif [ -f ".ai/codex_log_tests.txt.done" ]; then
+    python -m pytest tests/test_module_a.py -v
+    git diff
+fi
 ```
 
 ---
 
-## Key Flags Reference
+## Parallel Execution
+```bash
+# Launch both tasks; first runs in background
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/task_a.md and execute." \
+  --log-file .ai/log_a.txt &
+
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/task_b.md and execute." \
+  --log-file .ai/log_b.txt
+
+wait
+
+# Check results
+for log in .ai/log_a.txt .ai/log_b.txt; do
+    if [ -f "${log}.fallback_claude" ]; then
+        echo "$log: quota exceeded — Claude should handle"
+    else
+        echo "$log: $(head -1 "$log")"
+    fi
+done
+```
+
+---
+
+## Script Parameters
+
+### run_codex.sh
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--prompt` | (required) | Task prompt |
+| `--repo` | `~/mispricing-engine` | Working directory |
+| `--model` | `gpt-5.4` | Codex model |
+| `--output-file` | (none) | Codex `-o` file |
+| `--log-file` | `<repo>/.ai/codex_output.txt` | Log file path |
+| `--synchronous` | (flag, always on) | Documents synchronous intent |
+
+### run_codex.ps1
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `-Prompt` | (required) | Task prompt |
+| `-Repo` | `C:\Users\wenyu\mispricing-engine` | Working directory |
+| `-Model` | `gpt-5.4` | Codex model |
+| `-OutputFile` | (none) | Codex `-o` file |
+| `-LogFile` | `<Repo>\.ai\codex_output.txt` | Log file path |
+| `-Synchronous` | `$true` | Run inline (always pass `$true` from Claude Code) |
+
+## Codex Key Flags Reference
 
 | Flag | Purpose |
 |------|---------|
 | `--full-auto` | Auto-approve all tool calls + workspace write sandbox |
 | `-C <dir>` | Set working directory for Codex |
-| `-m <model>` | Model (default: `gpt-5.4`, or set `CODEX_MODEL` env var) |
+| `-m <model>` | Model (default: `gpt-5.4`) |
 | `-o <file>` | Write last message to file |
 | `--json` | JSONL event stream for programmatic control |
 | `--output-schema <file>` | Force structured JSON output |
@@ -230,12 +266,13 @@ You can also force Gemini explicitly:
 
 ## Important Caveats
 
-- **Codex has no persistent memory** — always give full context via file paths in the context file, never assume it knows prior decisions
+- **Codex has no persistent memory** — always give full context via file paths in the context file
 - **Codex cannot read conversation history** — summarize all relevant decisions in the context file
 - **Sandbox limitation** — Codex can only write to the workspace dir (`-C`) and `/tmp`
 - **Always verify output** before committing — run tests, check diffs, spot-check numbers
-- **Windows encoding** — do not pass CJK text inline; use the helper script which writes prompt to a UTF-8 temp file first
+- **Never use `Start-Process`** to launch this script from a Claude Code session — file writes won't persist; call the script directly
 - **`.ai/` is gitignored** — safe place for task files, logs, and intermediate outputs
+- **If `.fallback_claude` appears** after launching, do the task yourself immediately
 
 ---
 
@@ -246,7 +283,7 @@ codex-delegate/
 ├── README.md                          # This file
 ├── SKILL.md                           # Skill definition (loaded by Claude Code)
 ├── scripts/
-│   ├── run_codex.ps1                  # PowerShell wrapper (Windows / Cowork)
+│   ├── run_codex.ps1                  # PowerShell wrapper (Windows)
 │   └── run_codex.sh                   # Bash wrapper (Mac / Linux)
 └── examples/
     ├── example_context_file.md        # Template for .ai/codex_task_*.md

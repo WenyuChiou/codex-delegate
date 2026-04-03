@@ -1,25 +1,80 @@
 ---
 name: codex-delegate
-description: "Delegate token-heavy coding tasks to Codex CLI (OpenAI) or Gemini CLI from Claude Code or Cowork. Use this skill whenever you need to write large amounts of code, do batch file edits, generate boilerplate, write tests, migrate code patterns, or do any token-heavy execution work. ALWAYS use this skill instead of writing 100+ lines of code yourself. This skill saves Claude tokens by routing bulk work to cheaper models while Claude focuses on planning, evaluation, and review."
+description: "Delegate token-heavy coding tasks to Codex CLI (OpenAI gpt-5.4) from Claude Code. Use this skill whenever you need to write large amounts of code, do batch file edits, generate boilerplate, write tests, migrate code patterns, or do any token-heavy execution work. ALWAYS use this skill instead of writing 100+ lines of code yourself. This skill saves Claude tokens by routing bulk work to cheaper models while Claude focuses on planning, evaluation, and review."
 ---
 
-# Codex/Gemini Delegate Skill
+# Codex Delegate Skill
 
-You are Claude acting as a **supervisor**. You plan, evaluate, and review. Codex and Gemini do the heavy writing.
+You are Claude acting as a **supervisor**. You plan, evaluate, and review. Codex does the heavy writing.
 
-## Important: Codex Sandbox Limitation
+## Important: Execution Environment
 
-Codex CLI in `--full-auto` mode runs in a **write-sandbox**. When invoked via `cmd /c` or `Start-Process` (from Cowork), file modifications may NOT persist on disk even though the output log shows correct diffs.
+### Synchronous Execution (Claude Code sessions — RECOMMENDED)
+From a Claude Code session, call the helper script **directly** in Bash. This is the only reliable way to ensure file writes persist:
 
-**Recommended delegation patterns (in order of reliability):**
-1. **Code review / read-only analysis** — Codex reads code and writes analysis to stdout → always works
-2. **Claude Code session calls `codex exec` directly in Bash** → writes persist
-3. **Diff generation** — Codex generates diffs, Claude applies them via Edit tool → reliable but manual
-4. **From Cowork for file writes** — Use `start_code_task` to delegate to a Claude Code session that runs Codex internally
+```bash
+# Direct synchronous call — file writes always persist
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_foo.md and execute all instructions." \
+  --log-file .ai/codex_log_foo.txt
+```
+
+Or call the PowerShell script directly (no Start-Process wrapper):
+```powershell
+# From Claude Code Bash tool — call ps1 directly, NOT via Start-Process
+& "C:\Users\wenyu\mispricing-engine\.claude\skills\codex-delegate\scripts\run_codex.ps1" `
+    -Prompt "Read .ai/codex_task_foo.md and execute all instructions." `
+    -LogFile "C:\Users\wenyu\mispricing-engine\.ai\codex_log_foo.txt"
+```
+
+### Why NOT Start-Process
+`Start-Process powershell -ArgumentList "-File run_codex.ps1 ..."` is **flaky from Claude Code sessions** — Codex runs in a write-sandbox where file modifications may not persist on disk even when the output log shows correct diffs. Always call the script directly (synchronous) instead.
+
+## Quota Fallback
+
+The helper scripts implement automatic fallback when Codex API quotas are exhausted.
+
+### Fallback Chain
+```
+Codex CLI → .fallback_claude sentinel (Claude does the task itself)
+```
+
+### How it works
+1. Script runs Codex CLI normally.
+2. If exit code is 429 **or** stderr/stdout contains quota patterns (`"quota exceeded"`, `"rate limit"`, `"insufficient_quota"`, `"too many requests"`, etc.) → quota detected.
+3. Script writes two files:
+   - `<log>.error` — contains `ALL_QUOTA_EXCEEDED|<timestamp>`
+   - `<log>.fallback_claude` — sentinel file (`FALLBACK_TO_CLAUDE|<timestamp>`)
+   - `<log>.done` — contains `FALLBACK|<timestamp>` (signals completion to polling loop)
+4. **After polling for `.done`**, check for `.fallback_claude`. If it exists, **do the task yourself** instead of retrying Codex.
+
+### Claude: check for fallback sentinel
+```bash
+# After polling for done:
+if [ -f ".ai/codex_log_foo.txt.fallback_claude" ]; then
+    echo "Codex quota exceeded — handling task directly"
+    # Do the task yourself here
+fi
+```
+
+```powershell
+# PowerShell equivalent:
+if (Test-Path ".ai\codex_log_foo.txt.fallback_claude") {
+    Write-Host "Codex quota exceeded — handling task directly"
+    # Do the task yourself here
+}
+```
+
+### Output tagging
+On success, the log file begins with `[MODEL_USED: codex/<model>]` so you know which model ran.
+On quota fallback, the log begins with `[CODEX QUOTA EXCEEDED at <timestamp>]`.
+
+### Note on Gemini
+Gemini CLI (`gemini`) was previously used for CJK/Chinese content routing and as a quota fallback. **This version of the skill does not include Gemini in the fallback chain.** If you need Gemini, invoke it manually. The CJK encoding workaround (writing prompt to a UTF-8 temp file) documented below still applies if you use Gemini separately.
 
 ## When to Delegate vs Keep
 
-### Delegate to Codex
+### Delegate to Codex (good for)
 - Batch file edits across many files (terminology, paths, imports)
 - Boilerplate generation (test scaffolds, config files, doc templates)
 - Code migration / refactoring across 10+ files with clear patterns
@@ -28,86 +83,32 @@ Codex CLI in `--full-auto` mode runs in a **write-sandbox**. When invoked via `c
 - Generating unit tests from existing implementations
 - Data pipeline scripts (read → transform → output)
 - Translation tasks with consistent terminology
-- Writing section drafts from structured data
+- Writing paper section drafts from structured data
 
-### Keep in Claude
+### Keep in Claude (bad for Codex)
 - Architecture decisions, API contract design, dependency choices
 - Decisions requiring project history or memory context
-- Nuanced judgment calls
+- Nuanced judgment calls (what claims are defensible, circular reasoning)
 - Bug diagnosis with complex state (Claude traces context better)
 - Code touching multiple subsystems with implicit coupling
 - Security-sensitive code (auth, input validation)
 - Tasks requiring iterative dialogue with user
 - Anything requiring verification against prior conversations
 
-## Execution Environment
-
-### Environment Variables
-
-Configure these to avoid hardcoding paths:
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `REPO_ROOT` | Path to the repository root | Current working directory |
-| `CODEX_PATH` | Path to Codex CLI executable | `codex` (assumes on PATH) |
-| `GEMINI_PATH` | Path to Gemini CLI executable | `gemini` (assumes on PATH) |
-| `CODEX_MODEL` | Default Codex model | `gpt-5.4` |
-| `OPENAI_API_KEY` | OpenAI API key | Required |
-| `GEMINI_API_KEY` | Google AI API key | Required for Gemini |
-
-### From Claude Code (Bash)
-
-Call Codex directly:
-```bash
-REPO="${REPO_ROOT:-$(pwd)}"
-MODEL="${CODEX_MODEL:-gpt-5.4}"
-codex exec --full-auto -C "$REPO" -m "$MODEL" "Read .ai/codex_task_<name>.md and execute all instructions."
-```
-
-### From Cowork (via Windows PowerShell MCP)
-
-**Critical: each PowerShell call is a NEW session** — variables and background jobs do NOT persist between calls. Use the helper script + file-based signaling.
-
-**Method A: Read-only analysis / code review (MOST RELIABLE from Cowork)**
-```powershell
-$script  = "$env:SKILL_ROOT\scripts\run_codex.ps1"
-$repo    = $env:REPO_ROOT
-$logFile = "$repo\.ai\codex_log_foo.txt"
-
-Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$script`" -Prompt `"Read .ai/codex_task_foo.md and execute all instructions.`" -Repo `"$repo`" -LogFile `"$logFile`"" -WindowStyle Hidden
-
-# Poll for completion (every 30-60s)
-while (!(Test-Path "$logFile.done")) { Start-Sleep 30 }
-Get-Content $logFile
-```
-
-**Method B: File modifications via start_code_task (RELIABLE for writes)**
-When Codex needs to modify files, delegate to a Claude Code task:
-```
-start_code_task: "Run codex exec --full-auto -C . -m gpt-5.4 'Read .ai/codex_task_foo.md and execute.' then verify changes with git diff and commit."
-```
-
-**Method C: Synchronous short tasks (<30s)**
-```powershell
-$repo = $env:REPO_ROOT
-codex exec --full-auto -C "$repo" -m gpt-5.4 "short prompt here"
-```
-
 ## Core Workflow: Context File Pattern (PREFERRED)
 
-For any non-trivial task, write a structured context file first. This is better than long inline prompts: reusable, version-controlled, no length limits.
+For any non-trivial task, write a structured context file first.
 
 ### Step 1: Claude writes the context file
-
 Save to `.ai/codex_task_<name>.md` in the repo:
 
 ```markdown
 # Task: <descriptive name>
 
 ## Context
-- Repo root: (Codex reads from its working directory — set via -C flag)
-- Key files to read: <list paths>
-- Key files to modify: <list paths>
+- Repo: C:\Users\wenyu\mispricing-engine
+- Key files to read: <list paths Codex should read>
+- Key files to modify: <list paths Codex should write>
 
 ## Instructions
 <Clear, step-by-step instructions. Include WHY not just WHAT.>
@@ -122,93 +123,104 @@ Save to `.ai/codex_task_<name>.md` in the repo:
 - Write a summary of changes to .ai/codex_result_<name>.md
 ```
 
-### Step 2: Launch Codex
-
+### Step 2: Launch Codex (synchronous, from Claude Code Bash)
 ```bash
-REPO="${REPO_ROOT:-$(pwd)}"
-codex exec --full-auto -C "$REPO" -m "${CODEX_MODEL:-gpt-5.4}" \
-  "Read .ai/codex_task_<name>.md and execute all instructions inside."
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
+  --log-file .ai/codex_log_<name>.txt
 ```
 
-### Step 3: Claude reviews
+### Step 3: Check result
+```bash
+# Check for fallback sentinel first
+if [ -f ".ai/codex_log_<name>.txt.fallback_claude" ]; then
+    echo "Quota exceeded — doing task myself"
+elif [ -f ".ai/codex_log_<name>.txt.done" ]; then
+    cat ".ai/codex_log_<name>.txt"
+fi
+```
 
-- Read the output / modified files
+### Step 4: Claude reviews
+- Read the output/modified files
 - Check against ground truth (run tests, verify numbers)
 - If 80%+ correct: fix remaining issues directly
 - If fundamentally wrong: rewrite context file and re-run
 
 ## Advanced Patterns
 
-### Parallel Execution
-
-Launch multiple independent Codex tasks simultaneously:
+### Parallel Execution (from Claude Code Bash)
 ```bash
-# Bash (Mac/Linux/WSL)
-REPO="${REPO_ROOT:-$(pwd)}"
-codex exec --full-auto -C "$REPO" "Read .ai/task_a.md and execute." &
-codex exec --full-auto -C "$REPO" "Read .ai/task_b.md and execute." &
-wait
-```
+# Launch task A in background, run task B in foreground
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_a.md and execute." \
+  --log-file .ai/log_a.txt &
 
-```powershell
-# PowerShell (Windows)
-$script = "$env:SKILL_ROOT\scripts\run_codex.ps1"
-$repo   = $env:REPO_ROOT
-Start-Process powershell -ArgumentList "-File `"$script`" -Prompt `"Read .ai/task_a.md and execute.`" -Repo `"$repo`" -LogFile `"$repo\.ai\log_a.txt`"" -WindowStyle Hidden
-Start-Process powershell -ArgumentList "-File `"$script`" -Prompt `"Read .ai/task_b.md and execute.`" -Repo `"$repo`" -LogFile `"$repo\.ai\log_b.txt`"" -WindowStyle Hidden
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_b.md and execute." \
+  --log-file .ai/log_b.txt
 
-# Poll for both
-while (!((Test-Path "$repo\.ai\log_a.txt.done") -and (Test-Path "$repo\.ai\log_b.txt.done"))) { Start-Sleep 15 }
+wait  # wait for background task
+
+# Check both results
+for log in .ai/log_a.txt .ai/log_b.txt; do
+    if [ -f "${log}.fallback_claude" ]; then
+        echo "$log: quota exceeded — needs Claude"
+    else
+        echo "$log: $(head -1 $log)"
+    fi
+done
 ```
 
 ### Structured Output (for data extraction)
-
 ```bash
-codex exec --full-auto --output-schema schema.json \
-  "Extract all benchmark numbers from the backtest results"
+codex exec --full-auto --output-schema schema.json "Extract all benchmark numbers from the backtest results"
 ```
-
-Forces JSON output matching the schema. Good for pipeline tasks where Claude processes the result programmatically.
+Forces JSON output matching schema. Good for pipeline tasks where Claude processes the result.
 
 ### Code Review Mode
-
 ```bash
-codex exec review   # reviews current git diff
+codex exec review  # reviews current git diff
 ```
 
-Quick second opinion on staged changes before committing.
+## Script Parameters
 
-## Gemini CLI
+### run_codex.sh
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--prompt` | (required) | Task prompt |
+| `--repo` | `~/mispricing-engine` | Working directory |
+| `--model` | `gpt-5.4` | Codex model |
+| `--output-file` | (none) | Codex `-o` output file |
+| `--log-file` | `<repo>/.ai/codex_output.txt` | Log file path |
+| `--synchronous` | (flag, always on) | Documents synchronous intent |
 
-Best for:
-- **Any task with Chinese/CJK content** — Codex CLI has argument encoding issues with CJK characters on Windows; Gemini handles them cleanly
-- Research and web search tasks
-- Long document summarization
-- JS/React/frontend work
-- Tasks where a larger context window helps
+### run_codex.ps1
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `-Prompt` | (required) | Task prompt |
+| `-Repo` | `C:\Users\wenyu\mispricing-engine` | Working directory |
+| `-Model` | `gpt-5.4` | Codex model |
+| `-OutputFile` | (none) | Codex `-o` output file |
+| `-LogFile` | `<Repo>\.ai\codex_output.txt` | Log file path |
+| `-Synchronous` | `$true` | Run inline (not via Start-Process); always pass `$true` from Claude Code |
 
-### Chinese/CJK encoding rule
-
-The `run_codex.ps1` and `run_codex.sh` helpers **auto-detect CJK characters** in `$Prompt` and route to Gemini automatically. You can also pass `-UseGemini` / `--use-gemini` explicitly.
-
-**Do NOT pass CJK text inline to `codex exec`** — argument parsing may silently truncate or garble the text on Windows. Always use the helper script, which writes the prompt to a UTF-8 temp file first.
-
-## Key Flags Reference
+## Codex Key Flags Reference
 
 | Flag | Purpose |
 |------|---------|
-| `--full-auto` | Auto-approve all tool calls + workspace write sandbox |
+| `--full-auto` | Auto-approve all tool calls + workspace write |
 | `-C <dir>` | Set working directory |
-| `-m <model>` | Model selection (default: `gpt-5.4`) |
+| `-m <model>` | Model selection (default: gpt-5.4) |
 | `-o <file>` | Write last message to file |
 | `--json` | JSONL event stream for programmatic control |
 | `--output-schema <file>` | Force structured JSON output |
 
 ## Important Caveats
 
-- Codex has **no persistent memory** — always give full context via file paths in the context file
-- Codex **cannot read conversation history** — summarize all relevant decisions in the context file
-- Sandbox: can only write to workspace dir (`-C`) and `/tmp`
-- **Always verify Codex output** against ground truth before committing
-- The `.ai/` directory should be gitignored — safe for task files and logs
-- Windows PowerShell sessions are stateless across calls — each call is a fresh shell
+- Codex has NO persistent memory — always give full context via file paths
+- Codex cannot read conversation history — summarize decisions in the context file
+- Sandbox: can only write to workspace dir and /tmp
+- Always verify Codex output against ground truth before committing
+- **Never** use `Start-Process` to launch this script from a Claude Code session — call it directly
+- The `.ai/` directory is gitignored — safe for task files and logs
+- If `.fallback_claude` sentinel appears after launch, do the task yourself immediately
