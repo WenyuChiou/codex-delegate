@@ -70,7 +70,7 @@ On success, the log file begins with `[MODEL_USED: codex/<model>]` so you know w
 On quota fallback, the log begins with `[CODEX QUOTA EXCEEDED at <timestamp>]`.
 
 ### Note on Gemini
-Gemini CLI (`gemini`) was previously used for CJK/Chinese content routing and as a quota fallback. **This version of the skill does not include Gemini in the fallback chain.** If you need Gemini for CJK/Chinese content, invoke it manually via `gemini -p "your prompt"` or by passing a UTF-8 prompt file via stdin.
+Gemini CLI (`gemini`) was previously used for CJK/Chinese content routing and as a quota fallback. **This skill does not include Gemini.** For CJK/Chinese content, use the separate `gemini-delegate` skill.
 
 ## Cross-Platform Note (Claude Code Bash = git-bash)
 
