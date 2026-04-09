@@ -9,9 +9,9 @@ Adjust the paths and examples to match your project's structure.
 
 - **Read `.claude/skills/codex-delegate/SKILL.md` before any task with 100+ lines of code changes.**
 - Token-heavy Python/backend work (tests, boilerplate, batch edits, migrations) → delegate to Codex CLI
-- Chinese/CJK content (reports, comments, translated docs) → auto-routes to Gemini CLI via helper script
 - Architecture decisions, bug diagnosis, security, multi-subsystem coupling → keep in Claude
-- Claude's role: **plan → write context file → launch Codex/Gemini → review output → fix remaining issues**
+- Claude's role: **plan → write context file → launch Codex → review output → fix remaining issues**
+- **If `.fallback_claude` sentinel appears after launching Codex, do the task yourself immediately**
 
 ### Decision Matrix
 
@@ -22,7 +22,6 @@ Adjust the paths and examples to match your project's structure.
 | Add type hints to an entire package | Codex |
 | Generate a README from structured data | Codex |
 | Migrate deprecated API calls across the codebase | Codex |
-| Generate Chinese-language report from data | Gemini (auto-routed) |
 | Design a new module's API surface | Claude |
 | Debug a subtle race condition | Claude |
 | Write auth middleware | Claude |
@@ -30,33 +29,33 @@ Adjust the paths and examples to match your project's structure.
 
 ### Execution Pattern
 
-**From Claude Code (bash):**
+**From Claude Code (bash) — synchronous, direct invocation:**
 ```bash
-# 1. Write context file
-# 2. Launch Codex
-codex exec --full-auto -C "${REPO_ROOT:-.}" -m "${CODEX_MODEL:-gpt-5.4}" \
-  "Read .ai/codex_task_<name>.md and execute all instructions."
-# 3. Review: git diff, run tests, verify output
+# 1. Write context file to .ai/codex_task_<name>.md
+# 2. Launch Codex via helper script (NOT via Start-Process)
+bash .claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_<name>.md and execute all instructions." \
+  --log-file .ai/codex_log_<name>.txt
+
+# 3. Check for quota fallback
+if [ -f ".ai/codex_log_<name>.txt.fallback_claude" ]; then
+    echo "Codex quota exceeded — handling task directly"
+    # Do the work yourself
+elif [ -f ".ai/codex_log_<name>.txt.done" ]; then
+    # 4. Review: git diff, run tests, verify output
+    git diff
+fi
 ```
 
-**From Cowork (Windows PowerShell):**
+**Windows PowerShell — call ps1 directly (no Start-Process):**
 ```powershell
-# For read-only analysis:
-$script = "$env:SKILL_ROOT\scripts\run_codex.ps1"
-Start-Process powershell -ArgumentList "-File `"$script`" -Prompt `"Read .ai/codex_task_foo.md and execute.`" -Repo `"$env:REPO_ROOT`" -LogFile `"$env:REPO_ROOT\.ai\log_foo.txt`"" -WindowStyle Hidden
+& ".claude\skills\codex-delegate\scripts\run_codex.ps1" `
+    -Prompt "Read .ai/codex_task_<name>.md and execute all instructions." `
+    -LogFile ".ai\codex_log_<name>.txt"
 
-# For file writes — delegate to a Claude Code task:
-# start_code_task: "Run codex exec --full-auto -C . 'Read .ai/codex_task_foo.md and execute.' then verify with git diff."
-```
-
-**Mac/Linux equivalent:**
-```bash
-./scripts/run_codex.sh \
-  --prompt "Read .ai/codex_task_foo.md and execute." \
-  --repo "${REPO_ROOT:-.}" \
-  --log-file ".ai/log_foo.txt" &
-
-# Poll for completion
-while [[ ! -f ".ai/log_foo.txt.done" ]]; do sleep 10; done
-cat ".ai/log_foo.txt"
+if (Test-Path ".ai\codex_log_<name>.txt.fallback_claude") {
+    Write-Host "Codex quota exceeded — handling task directly"
+} elseif (Test-Path ".ai\codex_log_<name>.txt.done") {
+    Get-Content ".ai\codex_log_<name>.txt"
+}
 ```
