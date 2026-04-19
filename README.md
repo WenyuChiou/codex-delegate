@@ -4,6 +4,17 @@
 
 A Claude skill for delegating coding tasks to OpenAI's Codex CLI agent (GPT-5.4). Claude plans and reviews; Codex executes.
 
+## Why this exists
+
+In real coding workflows, some tasks are better handled outside the main Claude Code session, especially when they are:
+
+- implementation-heavy
+- repetitive
+- large in scope
+- better isolated in a separate execution flow
+
+`codex-delegate` was built to make that handoff easier.
+
 ## Features
 
 **Code Generation** — Bulk Python/backend code via `codex exec --full-auto` with workspace-write sandbox
