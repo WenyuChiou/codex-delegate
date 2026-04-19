@@ -27,6 +27,14 @@ In real coding workflows, some tasks are better handled outside the main Claude 
 
 **Cross-Platform** — Windows cmd shell workarounds included (write persistence fix)
 
+## Common use cases
+
+- delegate large refactors to Codex CLI
+- offload repetitive file edits
+- use Claude Code for planning and Codex for execution
+- reduce token consumption in long coding sessions
+- build multi-model development workflows
+  
 ## Setup
 
 Codex CLI must be installed globally:
