@@ -1,59 +1,70 @@
-# Codex CLI Delegation Skill
+# Codex Delegate
 
-> [繁體中文版](README_zh-TW.md)
+> [繁體中文](README_zh-TW.md)
 
-A Claude skill for delegating coding tasks to OpenAI's Codex CLI agent (GPT-5.4). Claude plans and reviews; Codex executes.
+`codex-delegate` is a Claude-oriented skill for routing implementation-heavy work to Codex CLI while keeping planning, review, and acceptance in Claude.
 
-## Why this exists
+## Positioning
 
-In real coding workflows, some tasks are better handled outside the main Claude Code session, especially when they are:
+This skill is for tasks that are expensive in tokens but cheap in judgment:
 
-- implementation-heavy
-- repetitive
-- large in scope
-- better isolated in a separate execution flow
+- multi-file implementation
+- mechanical refactors
+- boilerplate generation
+- test scaffolding
+- large batch edits
 
-`codex-delegate` was built to make that handoff easier.
+It is not meant for architecture, root-cause debugging, security review, or ambiguous product decisions.
 
-## Features
+## What Changed In This Version
 
-**Code Generation** — Bulk Python/backend code via `codex exec --full-auto` with workspace-write sandbox
+- clearer routing boundary between Claude, Codex, and Gemini
+- explicit supervisor acceptance gate
+- machine-readable wrapper output via `<log>.result.json`
+- regression tests for bash and PowerShell wrappers
 
-**Code Review** — Automated review via `codex exec review`
+## Core Pattern
 
-**Test Generation** — Unit tests, integration tests, fixtures
+1. Claude writes a task file describing scope and constraints.
+2. Claude launches Codex synchronously through the wrapper.
+3. The wrapper emits sentinel files plus `result.json`.
+4. Claude reviews the diff and runs verification before accepting the result.
 
-**Multi-File Refactors** — Batch edits, constant extraction, renaming
+Wrapper success is not final acceptance. Claude still owns the judgment.
 
-**Cross-Platform** — Windows cmd shell workarounds included (write persistence fix)
+## Repository Layout
 
-## Common use cases
+```text
+codex-delegate/
+├── SKILL.md
+├── README.md
+├── README_zh-TW.md
+├── scripts/
+│   ├── run_codex.sh
+│   └── run_codex.ps1
+├── tests/
+│   └── test_wrappers.py
+└── references/
+```
 
-- delegate large refactors to Codex CLI
-- offload repetitive file edits
-- use Claude Code for planning and Codex for execution
-- reduce token consumption in long coding sessions
-- build multi-model development workflows
-  
-## Setup
+## Testing
 
-Codex CLI must be installed globally:
+```bash
+python -m pytest -q
+```
+
+Current wrapper tests cover:
+
+- success-path `result.json` generation
+- PowerShell wrapper contract behavior
+
+## Installation
+
+Codex CLI must be available in your environment:
 
 ```bash
 npm install -g @openai/codex
-```
-
-Verify: `codex --version` (tested with v0.104.0)
-
-## Project Structure
-
-```
-codex-delegate/
-├── SKILL.md              # Main skill instructions
-├── README.md             # English documentation
-├── README_zh-TW.md       # 繁體中文文件
-└── references/
-    └── examples.md       # Complete delegation examples
+codex --version
 ```
 
 ## License

@@ -1,42 +1,77 @@
-# Codex CLI 委派技能
+# Codex Delegate
 
-> [English Version](README.md)
+> [English](README.md)
 
-一個讓 Claude 將編程任務委派給 OpenAI Codex CLI (GPT-5.4) 的技能。Claude 負責規劃與審核，Codex 負責執行。
+`codex-delegate` 是一個給 Claude 使用的 skill，目的是把大量、機械式、實作導向的工作交給 Codex CLI，同時把規劃、審核、驗收留在 Claude。
 
-## 功能特色
+## 定位
 
-**程式碼生成** — 透過 `codex exec --full-auto` 進行批量 Python/後端程式碼生成
+這個 skill 適合「很花 token，但不需要太多高階判斷」的任務，例如：
 
-**程式碼審查** — 透過 `codex exec review` 進行自動化審查
+- 多檔案實作
+- 機械式重構
+- boilerplate 生成
+- 測試骨架生成
+- 大量批次修改
 
-**測試生成** — 單元測試、整合測試、測試資料
+不適合的任務包括：
 
-**多檔案重構** — 批次編輯、常數提取、重新命名
+- 架構決策
+- root-cause debugging
+- 安全性審查
+- 需求本身還不清楚的工作
 
-**跨平台** — 內含 Windows cmd shell 解決方案（寫入持久化修復）
+## 這版更新重點
 
-## 安裝
+- 明確區分 Claude、Codex、Gemini 的分工
+- 新增 supervisor acceptance gate
+- wrapper 會輸出機器可讀的 `<log>.result.json`
+- 新增 bash / PowerShell wrapper regression tests
 
-Codex CLI 需全域安裝：
+## 核心工作流
 
-```bash
-npm install -g @openai/codex
-```
+1. Claude 先寫 task file，定義範圍與限制。
+2. Claude 透過 wrapper 同步啟動 Codex。
+3. Wrapper 產出 sentinel 檔與 `result.json`。
+4. Claude 讀 diff、跑驗證，再決定是否接受結果。
 
-驗證：`codex --version`（已測試 v0.104.0）
+重點是：wrapper 成功不等於任務真正驗收通過。最終判斷仍然在 Claude。
 
 ## 專案結構
 
-```
+```text
 codex-delegate/
-├── SKILL.md              # 主要技能指令
-├── README.md             # 英文文件
-├── README_zh-TW.md       # 繁體中文文件
+├── SKILL.md
+├── README.md
+├── README_zh-TW.md
+├── scripts/
+│   ├── run_codex.sh
+│   └── run_codex.ps1
+├── tests/
+│   └── test_wrappers.py
 └── references/
-    └── examples.md       # 完整委派範例
 ```
 
-## 授權
+## 測試
+
+```bash
+python -m pytest -q
+```
+
+目前測試涵蓋：
+
+- success path 的 `result.json` 輸出
+- PowerShell wrapper contract 行為
+
+## 安裝
+
+你的環境需要先有 Codex CLI：
+
+```bash
+npm install -g @openai/codex
+codex --version
+```
+
+## License
 
 MIT
