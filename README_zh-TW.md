@@ -2,7 +2,7 @@
 
 > [English](README.md)
 
-`codex-delegate` 是一個給 Claude 使用的 skill，目的是把大量、機械式、實作導向的工作交給 Codex CLI，同時把規劃、審核、驗收留在 Claude。
+`codex-delegate` 是一個給 Claude 使用的 skill，目的是把 Codex CLI 當成「implementation-heavy coding work」的執行專家，同時把規劃、審核、驗收留在 Claude。
 
 ## 定位
 

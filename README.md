@@ -2,7 +2,7 @@
 
 > [繁體中文](README_zh-TW.md)
 
-`codex-delegate` is a Claude-oriented skill for routing implementation-heavy work to Codex CLI while keeping planning, review, and acceptance in Claude.
+`codex-delegate` is a Claude-oriented skill for using Codex CLI as an execution specialist for implementation-heavy coding work while keeping planning, review, and acceptance in Claude.
 
 ## Positioning
 

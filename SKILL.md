@@ -5,7 +5,7 @@ description: Use when a coding task is implementation-heavy, repetitive, or span
 
 # Codex Delegate Skill
 
-Claude is the supervisor. Claude plans, constrains scope, reviews the diff, and verifies outcomes. Codex does the heavy writing.
+Claude is the supervisor. Claude plans, constrains scope, reviews the diff, and verifies outcomes. Codex is the execution specialist for implementation-heavy coding work.
 
 ## When to Use
 
