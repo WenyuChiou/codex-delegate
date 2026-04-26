@@ -65,7 +65,17 @@ python -m pytest -q
 
 ## 安裝
 
-你的環境需要先有 Codex CLI：
+**1. 從 [`ai-research-skills` Claude Code marketplace](https://github.com/WenyuChiou/ai-research-skills) 裝 skill：**
+
+```bash
+claude plugin marketplace add WenyuChiou/ai-research-skills
+claude plugin install codex-delegate@ai-research-skills
+```
+
+Default scope 是 `user`（這個 OS 使用者帳號全域）。要只裝在當下 project
+加 `--scope project`。
+
+**2. 確認環境裡有 Codex CLI：**
 
 ```bash
 npm install -g @openai/codex
