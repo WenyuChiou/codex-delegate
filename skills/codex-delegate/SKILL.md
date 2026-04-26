@@ -7,6 +7,31 @@ description: Use when a coding task is implementation-heavy, repetitive, or span
 
 Claude is the supervisor. Claude plans, constrains scope, reviews the diff, and verifies outcomes. Codex is the execution specialist for implementation-heavy coding work.
 
+## Prerequisite check (do this first)
+
+This skill emits Codex CLI invocations. Before producing any task
+file, wrapper command, or handoff prompt, verify the binary is on
+`$PATH`:
+
+```bash
+codex --version
+```
+
+If that command is **not found**, stop and tell the user:
+
+> This skill needs the Codex CLI. Install it with:
+>
+> ```bash
+> npm install -g @openai/codex
+> codex --version
+> ```
+>
+> Then re-run your request.
+
+Do **not** prepare a task prompt, write a wrapper command, or
+fabricate a `result.json`. Without the binary on PATH, every
+"successful" wrapper run is a hallucination.
+
 ## When to Use
 
 Use this skill when the task is expensive in tokens but cheap in judgment.
