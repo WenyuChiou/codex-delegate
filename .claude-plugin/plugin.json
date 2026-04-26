@@ -8,6 +8,13 @@
   "homepage": "https://github.com/WenyuChiou/codex-delegate",
   "repository": "https://github.com/WenyuChiou/codex-delegate",
   "license": "MIT",
-  "keywords": ["codex", "delegation", "multi-ai", "code-generation"],
-  "skills": ["./"]
+  "keywords": [
+    "codex",
+    "delegation",
+    "multi-ai",
+    "code-generation"
+  ],
+  "skills": [
+    "."
+  ]
 }
