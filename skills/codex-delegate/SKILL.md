@@ -128,6 +128,19 @@ PowerShell direct call is also supported:
 
 Do not wrap these in `Start-Process`. Call them inline so file writes persist.
 
+If invoking `codex exec` directly (not through the wrapper), close
+stdin explicitly — codex-cli ≥ 0.121.0 hangs at "Reading additional
+input from stdin..." otherwise:
+
+```bash
+codex exec --full-auto -m gpt-5.4 \
+  "Read .ai/codex_task_<name>.md and execute all instructions inside." \
+  < /dev/null > .ai/codex_log_<name>.txt 2>&1
+```
+
+The wrapper scripts (`run_codex.sh` / `run_codex.ps1`) handle this
+internally; direct `codex exec` calls do not.
+
 ### 3. Check wrapper status first
 
 ```bash
