@@ -73,7 +73,14 @@ The wrappers only guarantee the contract exists. Claude must still inspect the d
 
 ### 1. Write a task file
 
-For any non-trivial task, create `.ai/codex_task_<name>.md`:
+For any non-trivial task, create `.ai/codex_task_<name>.md`. If the
+task is part of a multi-agent run planned by `agent-task-splitter`,
+the task file is already written for you at
+`.ai/codex_task_<NNN>_<slug>.md` — read `.coord/plan.yml` for round
+context (which other agents are running, dependencies, success
+criteria), then run the wrapper as usual.
+
+For solo Codex runs, create `.ai/codex_task_<name>.md` directly:
 
 ```markdown
 # Task: <descriptive name>
