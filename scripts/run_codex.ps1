@@ -7,7 +7,7 @@ param(
     [bool]$Synchronous = $true
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -74,7 +74,7 @@ $Prompt | Out-File -FilePath $promptFile -Encoding utf8
 $safePrompt = Get-Content $promptFile -Raw -Encoding utf8
 Remove-Item $promptFile -ErrorAction SilentlyContinue
 
-$codexArgs = @("exec", "--full-auto", "-C", $Repo, "-m", $Model)
+$codexArgs = @("exec", "--sandbox", "workspace-write", "-C", $Repo, "-m", $Model)
 if ($OutputFile) { $codexArgs += @("-o", $OutputFile) }
 $codexArgs += $safePrompt
 $codexBin = if ($env:CODEX_PATH) { $env:CODEX_PATH } else { "codex" }

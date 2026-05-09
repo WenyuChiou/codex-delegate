@@ -1,14 +1,21 @@
 # Codex Delegation Examples
 
-## Example 1: Extract Constants
+Examples are written for Claude Code Bash on Windows (git-bash). Use forward-slash paths and POSIX commands. For PowerShell variants, see `wrapper.md`. For prompt-template skeletons of the five delegation shapes, see `patterns.md`.
+
+The flag is `--sandbox workspace-write` on `codex-cli` 0.128.0+. The older `--full-auto` is deprecated and was removed from the wrappers in `ded4c5e`.
+
+## Example 1: Extract Constants (inline prompt)
 
 ```bash
-cd /d C:\Users\wenyu\mispricing-engine && echo Extract all magic numbers from pipeline/risk_controls.py into named constants in pipeline/strategy_constants.py. Add descriptive names and comments. Update imports in risk_controls.py. | codex exec --full-auto
+cd /c/Users/wenyu/mispricing-engine && \
+  echo "Extract all magic numbers from pipeline/risk_controls.py into named constants in pipeline/strategy_constants.py. Add descriptive names and comments. Update imports in risk_controls.py." \
+  | codex exec --sandbox workspace-write -m gpt-5.4
 ```
 
-## Example 2: Generate Unit Tests
+## Example 2: Generate Unit Tests (context file)
 
-**Context file** (`task-tests.md`):
+Context file (`.ai/codex_task_tests.md`):
+
 ```markdown
 # Task: Generate unit tests for conviction_scorer.py
 
@@ -25,18 +32,72 @@ Create tests/test_conviction_scorer.py with pytest tests covering:
 - At least 15 test cases
 ```
 
-```bash
-cd /d C:\Users\wenyu\mispricing-engine && type task-tests.md | codex exec --full-auto
-```
-
-## Example 3: Code Review
+Launch:
 
 ```bash
-cd /d C:\Users\wenyu\mispricing-engine && codex exec review --full-auto
+cd /c/Users/wenyu/mispricing-engine && \
+  cat .ai/codex_task_tests.md | codex exec --sandbox workspace-write -m gpt-5.4
 ```
 
-## Example 4: Multi-File Refactor
+## Example 3: Code Review (review mode)
 
 ```bash
-cd /d C:\Users\wenyu\mispricing-engine && echo Rename all occurrences of kelly_optimizer to position_sizer across the entire codebase. Update imports, function calls, and string references. Do NOT rename the actual files. | codex exec --full-auto
+cd /c/Users/wenyu/mispricing-engine && \
+  codex exec review --sandbox workspace-write -m gpt-5.4 </dev/null
 ```
+
+`</dev/null` is required when no stdin is piped — `codex-cli >= 0.121.0` hangs at "Reading additional input from stdin..." otherwise.
+
+## Example 4: Multi-File Refactor (inline prompt)
+
+```bash
+cd /c/Users/wenyu/mispricing-engine && \
+  echo "Rename all occurrences of kelly_optimizer to position_sizer across the entire codebase. Update imports, function calls, and string references. Do NOT rename the actual files." \
+  | codex exec --sandbox workspace-write -m gpt-5.4
+```
+
+## Example 5: Parallel Execution (independent subtasks)
+
+Two independent subtasks, run from Claude in parallel using `run_in_background=true` on each Bash call. Distinct log paths prevent collision.
+
+Subtask A — generate tests:
+
+```bash
+bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_tests.md and execute all instructions inside." \
+  --repo "$PWD" \
+  --log-file .ai/codex_log_tests.txt
+```
+
+Subtask B — refactor imports:
+
+```bash
+bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+  --prompt "Read .ai/codex_task_imports.md and execute all instructions inside." \
+  --repo "$PWD" \
+  --log-file .ai/codex_log_imports.txt
+```
+
+After both finish, inspect `.ai/codex_log_tests.txt.result.json` and `.ai/codex_log_imports.txt.result.json` separately.
+
+If the subtasks share files, do not parallelise — sequence them, or use a router (`research-hub-multi-ai` for research-hub workflows, `agent-task-splitter` for generic rounds) to write a dependency-aware plan. See `multi-agent.md`.
+
+## Example 6: Resume Session (targeted fix-up)
+
+When the previous run produced ~80% of the desired output and you only need a fix-up:
+
+```bash
+codex exec resume --last \
+  "Apply these review comments: (1) move helper to utils.py, (2) replace bare except, (3) add type hints to public functions." \
+  </dev/null
+```
+
+Resume specific session id:
+
+```bash
+codex exec resume <session-id> \
+  "Address only the failing test in test_strategy.py::test_threshold_boundary." \
+  </dev/null
+```
+
+Resume reuses the prior conversation. Do not resume across unrelated tasks.

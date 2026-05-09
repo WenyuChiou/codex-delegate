@@ -103,7 +103,7 @@ is_quota_error() {
 PROMPT_FILE="$(mktemp /tmp/codex_prompt_XXXXXX.txt)"
 printf '%s' "$PROMPT" > "$PROMPT_FILE"
 
-CODEX_ARGS=("exec" "--full-auto" "-C" "$REPO" "-m" "$MODEL")
+CODEX_ARGS=("exec" "--sandbox" "workspace-write" "-C" "$REPO" "-m" "$MODEL")
 [[ -n "$OUTPUT_FILE" ]] && CODEX_ARGS+=("-o" "$OUTPUT_FILE")
 CODEX_ARGS+=("$(cat "$PROMPT_FILE")")
 rm -f "$PROMPT_FILE"

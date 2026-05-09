@@ -1,209 +1,66 @@
 ---
 name: codex-delegate
-description: Use when a coding task is implementation-heavy, repetitive, or spans many files, and Claude should supervise while Codex CLI executes the mechanical work. Typical triggers include batch edits, boilerplate generation, large refactors with clear patterns, test scaffolding, and other token-heavy coding tasks. Do not use for architecture, root-cause debugging, security judgment, or ambiguous product decisions.
+description: Delegates implementation-heavy or repetitive coding work (batch edits, boilerplate, multi-file refactors with clear patterns, test scaffolding) from Claude to OpenAI Codex CLI. Use when token cost outweighs judgment cost. Trigger phrases include "delegate to codex", "let codex do this", "batch refactor across files", "scaffold tests for". Avoid for architecture, security review, or root-cause debugging.
+license: MIT
 ---
 
 # Codex Delegate Skill
 
-Claude is the supervisor. Claude plans, constrains scope, reviews the diff, and verifies outcomes. Codex is the execution specialist for implementation-heavy coding work.
+Claude is the supervisor. Codex CLI runs the mechanical work. Claude plans, constrains scope, reviews the diff, and verifies outcomes.
 
-## Prerequisite check (do this first)
+## Hard rules
 
-This skill emits Codex CLI invocations. Before producing any task
-file, wrapper command, or handoff prompt, verify the binary is on
-`$PATH`:
+- Before invoking the wrapper, run `codex --version` via Bash. If it fails, stop and tell the user to `npm install -g @openai/codex`.
+- When calling `codex exec` directly (not through the wrapper), close stdin explicitly (`</dev/null`); the wrapper handles this internally.
+- Wrapper run leaves machine-readable status at `<log-file>.result.json`. Acceptance is Claude's job, not the wrapper's.
+- Do not wrap the wrapper in `Start-Process`. Call it inline so file writes persist.
 
-```bash
-codex --version
-```
+## When to delegate
 
-If that command is **not found**, stop and tell the user:
+Mechanical → `codex` · Reasoning → `claude` · Long-context synthesis → `gemini`.
 
-> This skill needs the Codex CLI. Install it with:
->
-> ```bash
-> npm install -g @openai/codex
-> codex --version
-> ```
->
-> Then re-run your request.
+Full routing table and good/bad examples: `references/delegation-targets.md`.
 
-Do **not** prepare a task prompt, write a wrapper command, or
-fabricate a `result.json`. Without the binary on PATH, every
-"successful" wrapper run is a hallucination.
+## Workflow
 
-## When to Use
+1. **Brief**: write `.ai/codex_task_<name>.md` with Context / Goal / Constraints / Acceptance. Template: `references/task-template.md`. If the brief was already written by `agent-task-splitter` at `.ai/codex_task_<NNN>_<slug>.md`, read `.coord/plan.yml` for round context first.
 
-Use this skill when the task is expensive in tokens but cheap in judgment.
+2. **Run**: from Claude Code Bash, invoke the wrapper from its install location (user-scope skills install at `~/.claude/skills/`):
+   ```bash
+   bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+     --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
+     --repo "$PWD" \
+     --log-file .ai/codex_log_<name>.txt
+   ```
+   `--repo "$PWD"` overrides the wrapper default so it operates on the current project. PowerShell variant + env vars: `references/wrapper.md`.
 
-| Route to | Best for | Avoid |
-|----------|----------|-------|
-| `Codex` | Multi-file implementation, boilerplate, test scaffolds, mechanical refactors, batch edits | Architecture, debugging root cause, security review |
-| `Claude` | Requirements, design, API contracts, bug diagnosis, acceptance review | Large repetitive edits |
-| `Gemini` | Large-context reading, CJK/bilingual synthesis, second-opinion review | Bulk code generation |
+3. **Read status**: `cat .ai/codex_log_<name>.txt.result.json`.
+   - `success` → diff still needs review.
+   - `fallback` → Codex quota hit; Claude must take over.
+   - `error` → wrapper failed; check `<log>.error`.
 
-If the task needs deep project memory, cross-conversation judgment, or nuanced tradeoffs, keep it in Claude.
+4. **Accept**: read the diff, confirm scope, run the verification commands listed in the task file. Reject if Codex drifted. Extended checklist: `references/review-checklist.md`.
 
-## Required Output Contract
+## Output contract
 
-Every wrapper run must leave machine-readable status in:
+`.result.json` includes at minimum: `status` (success|fallback|error), `delegate` ("codex"), `model`, `log_file`, `output_file`, `summary`, `risks`, `files_changed`, `tests_run`, `timestamp_utc`. Full schema and status semantics: `references/output-contract.md`.
 
-`<log-file>.result.json`
+## Compatibility
 
-Required fields:
+- Tested with `@openai/codex` 0.128.0 (May 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
+- Default model: `gpt-5.4` (override via `--model` or `-Model`). Other models on your CLI: see `codex models`.
+- Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. The older `--full-auto` flag is deprecated in 0.128+ and was replaced.
+- `codex exec` runs in non-interactive mode and auto-approves (no `--ask-for-approval` flag exists on `exec`; that flag is top-level only).
+- Direct `codex exec` calls must close stdin (`</dev/null`) to avoid the historical hang (issue #20919).
+- PowerShell wrapper requires `$ErrorActionPreference` to NOT be `Stop` so stderr writes (warnings, banners) don't trip the catch block.
 
-```json
-{
-  "status": "success|fallback|error",
-  "delegate": "codex",
-  "model": "codex/<model>",
-  "log_file": "<path>",
-  "output_file": "<path or empty>",
-  "summary": "",
-  "risks": [],
-  "files_changed": [],
-  "tests_run": [],
-  "timestamp_utc": "2026-04-24T00:00:00Z"
-}
-```
+## See also
 
-The wrappers only guarantee the contract exists. Claude must still inspect the diff and fill in any real acceptance judgment from the actual changes.
-
-## Supervisor Workflow
-
-### 1. Write a task file
-
-For any non-trivial task, create `.ai/codex_task_<name>.md`. If the
-task is part of a multi-agent run planned by `agent-task-splitter`,
-the task file is already written for you at
-`.ai/codex_task_<NNN>_<slug>.md` — read `.coord/plan.yml` for round
-context (which other agents are running, dependencies, success
-criteria), then run the wrapper as usual.
-
-For solo Codex runs, create `.ai/codex_task_<name>.md` directly:
-
-```markdown
-# Task: <descriptive name>
-
-## Context
-- Repo: C:\path\to\repo
-- Read these files first:
-  - path/a.py
-  - path/b.py
-- Only modify:
-  - path/c.py
-  - path/d.py
-
-## Goal
-<what Codex should produce>
-
-## Constraints
-- Do not edit files outside the allowed list
-- Follow adjacent code style
-- Do not make architectural changes
-
-## Acceptance
-- Required tests: <commands>
-- Required files_changed expectation: <high-level expectation>
-- Required result summary: write a concise summary to .ai/codex_result_<name>.md
-```
-
-### 2. Launch Codex synchronously
-
-From Claude Code Bash:
-
-```bash
-bash .claude/skills/codex-delegate/scripts/run_codex.sh \
-  --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
-  --log-file .ai/codex_log_<name>.txt
-```
-
-PowerShell direct call is also supported:
-
-```powershell
-& "C:\Users\wenyu\mispricing-engine\.claude\skills\codex-delegate\scripts\run_codex.ps1" `
-    -Prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." `
-    -LogFile "C:\Users\wenyu\mispricing-engine\.ai\codex_log_<name>.txt"
-```
-
-Do not wrap these in `Start-Process`. Call them inline so file writes persist.
-
-If invoking `codex exec` directly (not through the wrapper), close
-stdin explicitly — codex-cli ≥ 0.121.0 hangs at "Reading additional
-input from stdin..." otherwise:
-
-```bash
-codex exec --full-auto -m gpt-5.4 \
-  "Read .ai/codex_task_<name>.md and execute all instructions inside." \
-  < /dev/null > .ai/codex_log_<name>.txt 2>&1
-```
-
-The wrapper scripts (`run_codex.sh` / `run_codex.ps1`) handle this
-internally; direct `codex exec` calls do not.
-
-### 3. Check wrapper status first
-
-```bash
-cat .ai/codex_log_<name>.txt.result.json
-```
-
-If status is `fallback`, Codex quota was hit and Claude must do the work directly.
-
-### 4. Claude acceptance gate
-
-Claude must do all of the following before claiming success:
-
-- Read the changed files or diff
-- Confirm the change stayed inside scope
-- Run the required verification commands
-- Reject the result if Codex drifted from the brief
-
-Passing wrapper execution is not acceptance. It only proves the delegate run finished.
-
-## Good Delegation Targets
-
-- Refactor a repeated pattern across 10+ files
-- Generate unit tests from a clear implementation
-- Add logging, docstrings, or type hints at scale
-- Rename imports, constants, or terminology across a codebase
-- Produce deterministic scaffolding from a precise spec
-
-## Bad Delegation Targets
-
-- Diagnose an intermittent production bug
-- Decide between competing architectures
-- Review auth, secrets, validation, or permission logic
-- Resolve unclear requirements through conversation
-- Make claims that need human defensibility or project memory
-
-## Windows Runner Note
-
-Keep platform quirks in the runner scripts, not in the task brief.
-
-- Claude Code Bash uses Unix shell syntax on Windows
-- Use forward slashes in bash examples
-- Use PowerShell examples only when calling `.ps1` directly
-- Never use `Start-Process` for these wrappers from Claude Code sessions
-
-## Wrapper Behavior
-
-Both wrappers:
-
-- run synchronously
-- detect quota/rate-limit failures
-- write `.fallback_claude`, `.done`, `.error` sentinels
-- emit `<log>.result.json`
-
-Use `CODEX_PATH` when you need to override the Codex executable for testing or custom environments.
-
-## Minimal Review Checklist
-
-Before accepting delegate output:
-
-- Was the task file specific enough?
-- Did Codex stay inside the allowed write scope?
-- Does the diff match the requested intent?
-- Did required tests actually run?
-- Are risks or follow-ups obvious from the changes?
-
-If any answer is no, fix the task file or take the rest locally in Claude.
+- `references/delegation-targets.md` — when to use vs avoid
+- `references/wrapper.md` — full wrapper invocation, env vars, Windows runner notes
+- `references/task-template.md` — task brief template
+- `references/output-contract.md` — full `.result.json` schema, status semantics, `.fallback_claude` quota sentinel
+- `references/review-checklist.md` — extended acceptance gate
+- `references/patterns.md` — five single-task delegation shapes (context file, parallel, resume, structured output, review mode)
+- `references/multi-agent.md` — leaf role in router/leaves architecture; when to route through `research-hub-multi-ai` or `agent-task-splitter`
+- `references/examples.md` — concrete invocation examples on `codex-cli` 0.128.0+ syntax
