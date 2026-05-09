@@ -32,7 +32,7 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
      --repo "$PWD" \
      --log-file .ai/codex_log_<name>.txt
    ```
-   `--repo "$PWD"` overrides the wrapper default so it operates on the current project. PowerShell variant + env vars: `references/wrapper.md`.
+   `--repo` defaults to the caller's `$PWD`; pass `--repo "$PWD"` explicitly only if you want to be defensive about the working directory at invocation. PowerShell variant + env vars: `references/wrapper.md`.
 
 3. **Read status**: `cat .ai/codex_log_<name>.txt.result.json`.
    - `success` → diff still needs review.
