@@ -14,7 +14,7 @@ bash scripts/run_codex.sh \
 
 Optional flags:
 
-- `--repo <path>`: project root (default: `$HOME/mispricing-engine`)
+- `--repo <path>`: project root (default: the caller's `$PWD`)
 - `--model <name>`: model string passed to `codex exec -m`
 - `--output-file <path>`: passed to `codex exec -o`
 

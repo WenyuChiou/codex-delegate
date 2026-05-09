@@ -43,7 +43,9 @@ write_result_json() {
 }
 
 PROMPT=""
-REPO="${HOME}/mispricing-engine"
+# Default --repo to the caller's working directory; previously hardcoded to
+# the original author's mispricing-engine path, which broke fresh installs.
+REPO="${PWD}"
 MODEL="gpt-5.4"
 OUTPUT_FILE=""
 LOG_FILE=""

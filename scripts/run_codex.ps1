@@ -1,11 +1,16 @@
 param(
     [Parameter(Mandatory = $true)][string]$Prompt,
-    [string]$Repo = "C:\Users\wenyu\mispricing-engine",
+    [string]$Repo = "",
     [string]$Model = "gpt-5.4",
     [string]$OutputFile = "",
     [string]$LogFile = "",
     [bool]$Synchronous = $true
 )
+
+# Default --repo to the caller's working directory.
+# Resolved here (not at param default) so it reflects the shell's PWD
+# at invocation time, not the script's parse-time location.
+if (-not $Repo) { $Repo = (Get-Location).Path }
 
 $ErrorActionPreference = "Continue"
 
