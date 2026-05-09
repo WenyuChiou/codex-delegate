@@ -28,22 +28,31 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @lru_cache(maxsize=1)
 def _bash_drive_prefix() -> str:
-    """Probe whether the bash on PATH is WSL or git-bash.
+    """Probe whether the bash on PATH expects `/mnt/c/` or `/c/` paths.
 
-    Returns `/mnt` for WSL, `""` for git-bash. Linux / macOS don't have
-    drive letters at all so this helper isn't used there.
+    Returns `/mnt` for WSL-style mounts, `""` for git-bash-style mounts.
+    Linux / macOS don't have drive letters and this helper returns `""`.
+
+    Tries both forms against a known directory (`C:\\Windows` always
+    exists on a Windows host). Inspects exit code only — never reads
+    stdout/stderr — because WSL bash sometimes prints UTF-16 startup
+    banners that would otherwise contaminate any captured output.
     """
     if sys.platform != "win32":
         return ""
     if shutil.which("bash") is None:
         return ""
-    proc = subprocess.run(
-        ["bash", "-c", "test -d /mnt/c && echo /mnt || echo ''"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.stdout.strip()
+    for prefix in ("/mnt", ""):
+        candidate = f"{prefix}/c/Windows"
+        proc = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-c", f"test -d '{candidate}'"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return prefix
+    return ""
 
 
 def to_bash_path(path: Path) -> str:
