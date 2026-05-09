@@ -59,7 +59,8 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 - `references/delegation-targets.md` — when to use vs avoid
 - `references/wrapper.md` — full wrapper invocation, env vars, Windows runner notes
 - `references/task-template.md` — task brief template
-- `references/output-contract.md` — full `.result.json` schema and status semantics
+- `references/output-contract.md` — full `.result.json` schema, status semantics, `.fallback_claude` quota sentinel
 - `references/review-checklist.md` — extended acceptance gate
-
-`references/examples.md` exists from earlier versions and is **stale** — it pre-dates the current routing rules. Treat it as historical until refreshed.
+- `references/patterns.md` — five single-task delegation shapes (context file, parallel, resume, structured output, review mode)
+- `references/multi-agent.md` — leaf role in router/leaves architecture; when to route through `research-hub-multi-ai` or `agent-task-splitter`
+- `references/examples.md` — concrete invocation examples on `codex-cli` 0.128.0+ syntax

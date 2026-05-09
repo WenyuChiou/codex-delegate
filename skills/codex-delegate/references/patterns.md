@@ -1,6 +1,6 @@
 # Codex delegation patterns
 
-Five recurring delegation shapes. Pick one before you write the task brief ??the brief looks different for each.
+Five recurring delegation shapes. Pick one before you write the task brief — the brief looks different for each.
 
 For paste-ready invocations, see `examples.md`.
 
@@ -52,7 +52,7 @@ Steps:
 2. From Claude Code Bash, launch each wrapper in parallel by issuing one Bash tool call per subtask in the same message, each with `run_in_background=true`. Distinct log paths so result files do not collide.
 3. Poll each `.result.json` and aggregate before accepting.
 
-If the subtasks share files, do not parallelise ??sequence them, or use a router (`research-hub-multi-ai` for research-hub workflows, `agent-task-splitter` for generic rounds) to write a dependency-aware plan.
+If the subtasks share files, do not parallelise — sequence them, or use a router (`research-hub-multi-ai` for research-hub workflows, `agent-task-splitter` for generic rounds) to write a dependency-aware plan.
 
 ---
 
@@ -75,7 +75,7 @@ Steps:
    codex exec resume <session-id> "Address these review comments: <list>." </dev/null
    ```
 
-Resume reuses the prior conversation, saving context. Do not resume across unrelated tasks ??start a new session for those.
+Resume reuses the prior conversation, saving context. Do not resume across unrelated tasks — start a new session for those.
 
 If resume is needed more than twice on the same task, the brief is wrong. Rewrite the task file (Pattern 1) instead of layering more fix-ups.
 
@@ -112,7 +112,7 @@ Steps:
 2. Force-schema run:
 
    ```bash
-   codex exec --sandbox workspace-write \\
+   codex exec --sandbox workspace-write \
      --output-schema .ai/schemas/extraction_schema.json \
      "Extract <X> from <source> and emit conformant JSON." \
      </dev/null
