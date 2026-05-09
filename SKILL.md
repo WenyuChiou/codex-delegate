@@ -19,6 +19,15 @@ Use this skill when the task is expensive in tokens but cheap in judgment.
 
 If the task needs deep project memory, cross-conversation judgment, or nuanced tradeoffs, keep it in Claude.
 
+## Multi-Agent Coordination
+
+This skill is the **leaf** in a router/leaves architecture:
+
+- **Single delegate this round** (just Codex, just Gemini): use this skill directly.
+- **Two or more delegates this round** (Codex + Gemini, multiple parallel Codex sessions, or a sequence of mixed handoffs): use the `research-hub-multi-ai` router first to write `.coord/multi_ai_plan.md`. Each leaf then reads its assigned task brief from that plan.
+
+Do not hand-roll multi-agent coordination from inside this skill. The router owns task splitting, dependency ordering, and reconciliation.
+
 ## Required Output Contract
 
 Every wrapper run must leave machine-readable status in:
@@ -115,6 +124,20 @@ Claude must do all of the following before claiming success:
 
 Passing wrapper execution is not acceptance. It only proves the delegate run finished.
 
+## Five Workflow Patterns
+
+Use this checklist when shaping a delegation. Each row tells you when the pattern fits and the mechanism.
+
+| Pattern | When to reach for it | Mechanism |
+|---|---|---|
+| **Context file** | Brief is long, will be re-run, or spans multiple files | Write `.ai/codex_task_<name>.md`, point Codex at it from the wrapper |
+| **Parallel execution** | Two or more independent subtasks on the same repo | Launch multiple wrapper runs in parallel from Claude Bash with `run_in_background=true`; give each a distinct log path |
+| **Resume session** | Previous Codex output was 80% correct and you only need a fix-up | `codex exec resume --last` (or a specific session id) and ask Codex to address the specific issues |
+| **Structured output** | Pipeline-style data extraction where Claude post-processes | `codex exec --full-auto --output-schema schema.json "..."` to force conformant JSON |
+| **Review mode** | Quick second opinion on a staged diff | `codex exec review --full-auto` against the current working tree |
+
+Ready-to-paste prompt templates for each pattern live in `references/patterns.md`.
+
 ## Good Delegation Targets
 
 - Refactor a repeated pattern across 10+ files
@@ -135,10 +158,50 @@ Passing wrapper execution is not acceptance. It only proves the delegate run fin
 
 Keep platform quirks in the runner scripts, not in the task brief.
 
-- Claude Code Bash uses Unix shell syntax on Windows
+- Claude Code Bash uses Unix shell syntax on Windows (git-bash). Do not use `cd /d` or other cmd.exe-only constructs in examples.
 - Use forward slashes in bash examples
 - Use PowerShell examples only when calling `.ps1` directly
 - Never use `Start-Process` for these wrappers from Claude Code sessions
+
+## Model Selection
+
+Codex CLI's default model is `gpt-5.5`. With `codex-cli >= 0.121.0`, runs abort if that model is not available in your account. Set the model explicitly:
+
+- Pass `-m gpt-5.4` (or another available model) on each call.
+- Or set the default once in `~/.codex/config.toml`:
+
+  ```toml
+  [model]
+  default = "gpt-5.4"
+  ```
+
+The shipped wrappers (`run_codex.sh`, `run_codex.ps1`) already default to `gpt-5.4`. This section only matters when you call `codex` directly, bypassing the wrapper.
+
+If a run fails with a "model not available" or similar error, check this first.
+
+## Non-Interactive Shell Note
+
+Since `codex-cli >= 0.121.0`, non-interactive runs hang unless stdin is closed. Close stdin explicitly when calling `codex` directly:
+
+```bash
+codex exec --full-auto -C /repo "task" < /dev/null
+```
+
+```powershell
+codex exec --full-auto -C C:\repo "task" *< $null
+```
+
+The wrappers handle this automatically. This section matters only for direct `codex` calls.
+
+## Quota Fallback
+
+When Codex hits its quota or rate limit, the wrappers write a `.fallback_claude` sentinel next to the log file and set `result.json` `status` to `fallback`. Claude must then:
+
+1. Read the sentinel and `result.json` to confirm the fallback path.
+2. Take the work directly in the current session, using the same task brief.
+3. Not retry the Codex call — quota errors do not resolve quickly.
+
+This avoids burning context on retry loops.
 
 ## Wrapper Behavior
 
