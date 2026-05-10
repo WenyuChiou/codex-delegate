@@ -2,6 +2,7 @@
 name: codex-delegate
 description: Delegates implementation-heavy or repetitive coding work (batch edits, boilerplate, multi-file refactors with clear patterns, test scaffolding) from Claude to OpenAI Codex CLI. Use when token cost outweighs judgment cost. Trigger phrases include "delegate to codex", "let codex do this", "batch refactor across files", "scaffold tests for". Avoid for architecture, security review, or root-cause debugging.
 license: MIT
+compatibility: Designed for Claude Code. Portable across agentskills.io-compliant hosts; the wrapper script lives at <skill-root>/scripts/run_codex.sh — adapt the example path to your host's skills directory (e.g. ~/.claude/skills/codex-delegate/ on Claude Code, ~/.hermes/skills/<category>/codex-delegate/ on Hermes).
 ---
 
 # Codex Delegate Skill
@@ -25,9 +26,9 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 
 1. **Brief**: write `.ai/codex_task_<name>.md` with Context / Goal / Constraints / Acceptance. Template: `references/task-template.md`. If the brief was already written by `agent-task-splitter` at `.ai/codex_task_<NNN>_<slug>.md`, read `.coord/plan.yml` for round context first.
 
-2. **Run**: from Claude Code Bash, invoke the wrapper from its install location (user-scope skills install at `~/.claude/skills/`):
+2. **Run**: invoke the wrapper from `<skill-root>/scripts/run_codex.sh`. On Claude Code that resolves to `~/.claude/skills/codex-delegate/scripts/run_codex.sh`; on other agentskills.io hosts substitute the host's skills directory.
    ```bash
-   bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+   bash <skill-root>/scripts/run_codex.sh \
      --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
      --repo "$PWD" \
      --log-file .ai/codex_log_<name>.txt
