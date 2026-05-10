@@ -1,13 +1,16 @@
 """Wrapper contract tests.
 
-The bash test runs on any platform that has `bash` on PATH (Linux,
-macOS, Windows-with-git-bash, Windows-with-WSL). On Windows the test
-detects whether the bash on PATH is git-bash (`/c/Users/...`) or WSL
-(`/mnt/c/Users/...`) and translates paths accordingly. On Linux / macOS
-it passes POSIX paths through unchanged.
+Bash test:
+- Linux / macOS: `bash` from PATH, POSIX paths.
+- Windows: explicitly use git-bash at `C:\\Program Files\\Git\\bin\\bash.exe`
+  if present. Avoids WSL bash on PATH which (when no distro is installed,
+  e.g. on GitHub Actions windows-latest) emits UTF-16 banner output that
+  pollutes subprocess pipes. Skipif when git-bash isn't found so plain
+  Windows hosts without Git for Windows skip cleanly instead of failing.
 
-The PowerShell test is skipped where `powershell` is not on PATH so it
-is a no-op on Linux / macOS CI runners.
+PowerShell test:
+- Skipif when `powershell` isn't on PATH so the test is a no-op on
+  Linux / macOS runners.
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ import os
 import shutil
 import subprocess
 import sys
-from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -26,52 +28,45 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@lru_cache(maxsize=1)
-def _bash_drive_prefix() -> str:
-    """Probe whether the bash on PATH expects `/mnt/c/` or `/c/` paths.
+def _resolve_bash() -> str | None:
+    """Return a path to a bash interpreter we trust for the wrapper test.
 
-    Returns `/mnt` for WSL-style mounts, `""` for git-bash-style mounts.
-    Linux / macOS don't have drive letters and this helper returns `""`.
-
-    Tries both forms against a known directory (`C:\\Windows` always
-    exists on a Windows host). Inspects exit code only — never reads
-    stdout/stderr — because WSL bash sometimes prints UTF-16 startup
-    banners that would otherwise contaminate any captured output.
+    On Windows we explicitly prefer git-bash at the standard
+    Git-for-Windows install path, because `shutil.which("bash")` may
+    return WSL bash and WSL bash on a host without an installed distro
+    prints a UTF-16 banner that contaminates subprocess pipes.
     """
-    if sys.platform != "win32":
-        return ""
-    if shutil.which("bash") is None:
-        return ""
-    for prefix in ("/mnt", ""):
-        candidate = f"{prefix}/c/Windows"
-        proc = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-c", f"test -d '{candidate}'"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if proc.returncode == 0:
-            return prefix
-    return ""
+    if sys.platform == "win32":
+        for candidate in (
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ):
+            if Path(candidate).is_file():
+                return candidate
+        return None
+    return shutil.which("bash")
 
 
 def to_bash_path(path: Path) -> str:
     """Convert a Path to a form bash can use on the current platform.
 
-    Windows + git-bash: `C:\\Users\\foo` -> `/c/Users/foo`.
-    Windows + WSL bash: `C:\\Users\\foo` -> `/mnt/c/Users/foo`.
-    Linux / macOS: POSIX path returned unchanged.
+    Windows + git-bash: `C:\\Users\\foo` -> `/c/Users/foo` (drive letter
+    becomes a top-level mount in MSYS2). Linux / macOS: POSIX path
+    unchanged.
     """
     resolved = path.resolve()
     if sys.platform == "win32":
-        prefix = _bash_drive_prefix()
         drive = resolved.drive.rstrip(":").lower()
         tail = resolved.as_posix().split(":", 1)[1]
-        return f"{prefix}/{drive}{tail}"
+        return f"/{drive}{tail}"
     return resolved.as_posix()
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not on PATH")
+_BASH = _resolve_bash()
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash (git-bash on Windows, system bash elsewhere) not available")
 def test_run_codex_sh_writes_result_contract(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -87,12 +82,12 @@ def test_run_codex_sh_writes_result_contract(tmp_path: Path) -> None:
 
     proc = subprocess.run(
         [
-            "bash",
+            _BASH,
             "-lc",
             (
                 f"chmod +x '{to_bash_path(fake_codex)}' && "
                 f"CODEX_PATH='{to_bash_path(fake_codex)}' "
-                f"bash '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
+                f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
                 f"--prompt 'do work' "
                 f"--repo '{to_bash_path(repo)}' "
                 f"--log-file '{to_bash_path(log_file)}'"
