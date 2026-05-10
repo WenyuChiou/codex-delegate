@@ -48,7 +48,7 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 ## Compatibility
 
 - Tested with `@openai/codex` 0.128.0 (May 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
-- Default model: `gpt-5.4` (override via `--model` or `-Model`). Other models on your CLI: see `codex models`.
+- Default model: `gpt-5.4` (override via `--model` or `-Model`). `gpt-5.5` is also available on `codex-cli` 0.128.0+ and produces more idiomatic output at ~3× the token cost; trade-offs and an A/B-test recipe live in `references/model-selection.md`. Other models on your CLI: see `codex models`.
 - Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. The older `--full-auto` flag is deprecated in 0.128+ and was replaced.
 - `codex exec` runs in non-interactive mode and auto-approves (no `--ask-for-approval` flag exists on `exec`; that flag is top-level only).
 - Direct `codex exec` calls must close stdin (`</dev/null`) to avoid the historical hang (issue #20919).
@@ -64,3 +64,4 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 - `references/patterns.md` — five single-task delegation shapes (context file, parallel, resume, structured output, review mode)
 - `references/multi-agent.md` — leaf role in router/leaves architecture; when to route through `research-hub-multi-ai` or `agent-task-splitter`
 - `references/examples.md` — concrete invocation examples on `codex-cli` 0.128.0+ syntax
+- `references/model-selection.md` — `gpt-5.4` vs `gpt-5.5` trade-offs (A/B-tested) + when to override the default
