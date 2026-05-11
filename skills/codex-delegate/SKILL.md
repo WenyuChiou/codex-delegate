@@ -26,14 +26,14 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 
 1. **Brief**: write `.ai/codex_task_<name>.md` with Context / Goal / Constraints / Acceptance. Template: `references/task-template.md`. If the brief was already written by `agent-task-splitter` at `.ai/codex_task_<NNN>_<slug>.md`, read `.coord/plan.yml` for round context first.
 
-2. **Run**: invoke the wrapper from `<skill-root>/scripts/run_codex.sh`. On Claude Code that resolves to `~/.claude/skills/codex-delegate/scripts/run_codex.sh`; on other agentskills.io hosts substitute the host's skills directory.
+2. **Run**: from Claude Code Bash, invoke the wrapper from its install location:
    ```bash
-   bash <skill-root>/scripts/run_codex.sh \
+   bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
      --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
      --repo "$PWD" \
      --log-file .ai/codex_log_<name>.txt
    ```
-   `--repo` defaults to the caller's `$PWD`; pass `--repo "$PWD"` explicitly only if you want to be defensive about the working directory at invocation. PowerShell variant + env vars: `references/wrapper.md`.
+   `--repo` defaults to the caller's `$PWD`; pass `--repo "$PWD"` explicitly only if you want to be defensive about the working directory at invocation. On non-Claude-Code agentskills.io hosts, substitute the host's skills directory (e.g. `~/.hermes/skills/<category>/codex-delegate/scripts/run_codex.sh`). PowerShell variant + env vars: `references/wrapper.md`.
 
 3. **Read status**: `cat .ai/codex_log_<name>.txt.result.json`.
    - `success` → diff still needs review.
