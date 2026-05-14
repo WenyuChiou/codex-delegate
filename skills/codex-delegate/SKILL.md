@@ -27,7 +27,7 @@ From a 6-round mixed-workload session (`awesome-agentic-ai-zh` 2026-05-14, see `
 |---|---|---|
 | **Mechanical sweep × 2 parallel** (e.g., term replacement, § strip, doc renumber) | **~7× token reduction** + caught 4 drift files | Repo with > 20 files needing the same edit |
 | **Mirror sync** (zh-TW → zh-Hans + en, 8 files) | **17-22× token reduction** | Multi-locale docs / curricula |
-| **Multi-file rename / typed-API migration** | ~3× | > 10 files following one pattern |
+| **Multi-file rename / typed-API migration** | ~3× (extrapolated from Phase D title-sweep) | > 10 files following one pattern |
 | **Single-file < 50 line fix** | **~1× (don't bother)** | Use Claude direct Edit |
 | **Architecture / debugging / security review** | **1× (skill cannot help)** | Claude direct |
 
@@ -101,7 +101,7 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 ## Compatibility
 
 - Tested with `@openai/codex` 0.128.0 (May 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
-- Default model: `gpt-5.4` (override via `--model` or `-Model`). `gpt-5.5` is also available on `codex-cli` 0.128.0+ and produces more idiomatic output at ~3× the token cost; trade-offs and an A/B-test recipe live in `references/model-selection.md`. Other models on your CLI: see `codex models`.
+- Default model: `gpt-5.5` (bumped from `gpt-5.4` on 2026-05-14 per operator preference; override via `--model` or `-Model`). `gpt-5.4` remains available and is ~3× cheaper per token if cost-sensitive — trade-offs and an A/B-test recipe live in `references/model-selection.md`. Other models on your CLI: see `codex models`.
 - Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. The older `--full-auto` flag is deprecated in 0.128+ and was replaced.
 - `codex exec` runs in non-interactive mode and auto-approves (no `--ask-for-approval` flag exists on `exec`; that flag is top-level only).
 - Direct `codex exec` calls must close stdin (`</dev/null`) to avoid the historical hang (issue #20919).
