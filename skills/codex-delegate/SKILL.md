@@ -9,6 +9,58 @@ compatibility: Designed for Claude Code. Portable across agentskills.io-complian
 
 Claude is the supervisor. Codex CLI runs the mechanical work. Claude plans, constrains scope, reviews the diff, and verifies outcomes.
 
+## Why use this instead of raw `codex exec`
+
+This wrapper is not cosmetic. It exists because every shipping task that bypasses it loses one of three things that have caused real incidents:
+
+| What the wrapper handles | What raw `codex exec` costs you |
+|---|---|
+| **stdin closure** (`</dev/null`) | Codex hangs indefinitely (issue #20919). One session hit a 25-minute zero-byte hang on 2026-05-14 because the supervising agent forgot the redirect. |
+| **`.result.json` structured contract** (`status` / `risks` / `files_changed` / `tests_run`) | You parse raw stdout. On a 10 MB log this is multi-thousand tokens of grep + interpretation per run. |
+| **Brief template** (`references/task-template.md`) | Codex drifts. F11 (over-applied a sweep rule to the meta-doc documenting the rule) and F12 (injected unrequested "Attributions: Karpathy, Simon Willison, ..." lines) both shipped from no-brief raw invocations. |
+
+### Measured token savings (real dogfood, not estimates)
+
+From a 6-round mixed-workload session (`awesome-agentic-ai-zh` 2026-05-14, see `agent-collab-skills/docs/measured-benefits.md`):
+
+| Workload | Saving vs Claude-inline | When it applies to you |
+|---|---|---|
+| **Mechanical sweep × 2 parallel** (e.g., term replacement, § strip, doc renumber) | **~7× token reduction** + caught 4 drift files | Repo with > 20 files needing the same edit |
+| **Mirror sync** (zh-TW → zh-Hans + en, 8 files) | **17-22× token reduction** | Multi-locale docs / curricula |
+| **Multi-file rename / typed-API migration** | ~3× | > 10 files following one pattern |
+| **Single-file < 50 line fix** | **~1× (don't bother)** | Use Claude direct Edit |
+| **Architecture / debugging / security review** | **1× (skill cannot help)** | Claude direct |
+
+The wrapper helps for **token-heavy mechanical work**. It does not help for judgment-heavy work — be honest about which one your task is.
+
+### Anti-patterns this skill prevents
+
+- **F11**: Codex over-applies a sweep rule to documentation describing that rule. Prevented by `agent-task-splitter` brief that explicitly lists in-scope files.
+- **F14**: Operator (Claude) defaults to `Bash("codex exec ...")` despite the rule saying use `Skill("codex-delegate")`. Prevented by a `PreToolUse` hook on the operator side (template below).
+- **Codex hang**: 25-minute zero-byte run on 2026-05-14 because raw `codex exec` was invoked without `</dev/null`. Prevented by wrapper's mandatory stdin closure.
+
+### CLAUDE.md snippet to enforce routing
+
+Drop this into your `~/.claude/CLAUDE.md` (or repo-level `CLAUDE.md`) to make the rule operational rather than aspirational:
+
+```markdown
+## Codex routing rule (enforced)
+
+For any task that is mechanical, multi-file, has a clear pattern, or
+batch-edits ≥ 5 files: invoke `Skill("codex-delegate", args="brief=...")`.
+Do NOT use `Bash("codex exec ...")` for shipping tasks — it loses stdin
+closure (codex hangs), the `.result.json` contract (no structured status),
+and the brief template (Codex drifts F11/F12).
+
+Optional mechanical enforcement: a PreToolUse hook on Bash that nudges raw
+`codex exec` toward `Skill("codex-delegate")`. Reference implementation:
+https://github.com/WenyuChiou/dotfiles-claude/blob/main/hooks/check_codex_skill_routing.py
+```
+
+→ The hook is non-blocking (warns only) so you can still run `codex --version` /
+`codex exec resume` / `codex exec review` without friction. Replace `return 0`
+with `return 2` in the hook to make it block instead of warn.
+
 ## Hard rules
 
 - Before invoking the wrapper, run `codex --version` via Bash. If it fails, stop and tell the user to `npm install -g @openai/codex`.
