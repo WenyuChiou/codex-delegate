@@ -1,10 +1,10 @@
 # Model Selection
 
-The wrapper defaults to `-m gpt-5.4`. As of `codex-cli` 0.128.0, `gpt-5.5` is also available and works correctly. **The default has not been changed** because the choice is not free — see the trade-off table below — and the right choice depends on the task. Override per-call with `--model gpt-5.5` (bash wrapper) or `-Model gpt-5.5` (PowerShell), or pin a different default in `~/.codex/config.toml`:
+The wrapper defaults to `-m gpt-5.5` (bumped from `gpt-5.4` in commit `70e6fdc` on 2026-05-15). The choice is **not free** — see the trade-off table below — and the right choice depends on the task. Override per-call with `--model gpt-5.4` (bash wrapper) or `-Model gpt-5.4` (PowerShell) for cost-sensitive batch work, or pin a different default in `~/.codex/config.toml`:
 
 ```toml
 [model]
-default = "gpt-5.5"
+default = "gpt-5.4"
 ```
 
 ## Trade-off snapshot
@@ -20,15 +20,15 @@ A/B run on a single `codex-delegate` invocation, identical prompt, fresh repo ea
 
 Both produced correct, runnable code. The semantic difference is style: `gpt-5.5` produced more idiomatic Python at significantly higher cost.
 
-## When to opt in to `gpt-5.5`
+## When to keep `gpt-5.5` (current default)
 
 - The output will be read by humans (production refactor, code-review prep, library code that ships).
 - Idiomatic style or subtle correctness (closure vs mutable default, generator vs list, dataclass vs dict, etc.) matters more than throughput.
 - The task is one-shot, not a sweep — the 3× token cost doesn't multiply across many calls.
 
-## When to keep `gpt-5.4` (current default)
+## When to override down to `gpt-5.4`
 
-- Mechanical sweeps across many files (the wrapper's main use case): boilerplate, batch edits, scaffolding, test harness generation. Token cost compounds quickly across N calls; gpt-5.4 is enough for these.
+- Mechanical sweeps across many files: boilerplate, batch edits, scaffolding, test harness generation. Token cost compounds quickly across N calls; gpt-5.4 is enough for these.
 - Token budget pressure (you are running parallel delegate sessions or the user has quota concerns).
 - Wall-time pressure (interactive iteration, TDD-style loops).
 - Time-to-first-byte matters more than the final-byte quality.
