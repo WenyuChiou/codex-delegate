@@ -100,7 +100,9 @@ function Get-GitStatusSnapshot {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return @() }
     $out = & git -C $Path -c core.quotePath=false status --porcelain 2>$null
     if ($LASTEXITCODE -ne 0) { return @() }
-    return @($out)
+    # git status on a clean repo yields $null; strip it so the result is a
+    # true empty array rather than a 1-element array holding $null.
+    return @($out | Where-Object { $null -ne $_ })
 }
 
 # Diff two porcelain snapshots; return the paths that became changed during
