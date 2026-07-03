@@ -78,6 +78,7 @@ REPO="${PWD}"
 MODEL="gpt-5.5"
 OUTPUT_FILE=""
 LOG_FILE=""
+BRIEF_FILE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -86,13 +87,62 @@ while [[ $# -gt 0 ]]; do
         --model)        MODEL="$2";       shift 2 ;;
         --output-file)  OUTPUT_FILE="$2"; shift 2 ;;
         --log-file)     LOG_FILE="$2";    shift 2 ;;
+        --brief-file)   BRIEF_FILE="$2";  shift 2 ;;
         --synchronous)  shift ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
 
+# Brief discipline: refuse inline prompts > 500 chars unless a brief is on disk.
+# Auditability gap fix (research-hub v0.89.1 post-release audit, 2026-05-15):
+# inline --prompt with no on-disk brief leaves orphan results and breaks
+# post-hoc traceability. Escape hatch: CODEX_DELEGATE_ALLOW_INLINE=1.
+if [[ "${CODEX_DELEGATE_ALLOW_INLINE:-0}" != "1" ]]; then
+    if [[ -n "$BRIEF_FILE" ]]; then
+        if [[ ! -f "$BRIEF_FILE" ]]; then
+            if [[ -f "$REPO/$BRIEF_FILE" ]]; then
+                BRIEF_FILE="$REPO/$BRIEF_FILE"
+            else
+                echo "codex-delegate: --brief-file '$BRIEF_FILE' does not exist on disk." >&2
+                echo "Write the brief first; the wrapper requires it on disk for audit traceability." >&2
+                exit 2
+            fi
+        fi
+        if [[ -z "$PROMPT" ]]; then
+            PROMPT="Read $BRIEF_FILE and execute all instructions inside."
+        fi
+        if [[ -z "$LOG_FILE" ]]; then
+            _brief_dir=$(dirname "$BRIEF_FILE")
+            _brief_stem=$(basename "$BRIEF_FILE" .md)
+            LOG_FILE="$_brief_dir/$_brief_stem.txt"
+        fi
+    elif [[ -n "$PROMPT" && ${#PROMPT} -gt 500 ]]; then
+        _referenced_brief=$(printf '%s' "$PROMPT" | grep -oE '[^[:space:]]*codex_task_[^[:space:]]+\.md' | head -1 || true)
+        if [[ -z "$_referenced_brief" ]]; then
+            echo "codex-delegate: brief must be on disk for audit traceability." >&2
+            echo "  Inline prompt is ${#PROMPT} chars (> 500) and no --brief-file passed." >&2
+            echo "  Write .ai/codex_task_<slug>.md first, then either:" >&2
+            echo "    bash run_codex.sh --brief-file .ai/codex_task_<slug>.md ..." >&2
+            echo "  or" >&2
+            echo "    bash run_codex.sh --prompt \"Read .ai/codex_task_<slug>.md and execute\" ..." >&2
+            echo "  Escape hatch (one-off shell debugging): CODEX_DELEGATE_ALLOW_INLINE=1" >&2
+            exit 2
+        fi
+        _check_path="$_referenced_brief"
+        if [[ ! -f "$_check_path" && -f "$REPO/$_check_path" ]]; then
+            _check_path="$REPO/$_check_path"
+        fi
+        if [[ ! -f "$_check_path" ]]; then
+            echo "codex-delegate: prompt references '$_referenced_brief' but it does not exist on disk." >&2
+            echo "Write the brief first; the wrapper requires it on disk for audit traceability." >&2
+            echo "Escape hatch (one-off shell debugging): CODEX_DELEGATE_ALLOW_INLINE=1" >&2
+            exit 2
+        fi
+    fi
+fi
+
 if [[ -z "$PROMPT" ]]; then
-    echo "Error: --prompt is required" >&2
+    echo "Error: --prompt is required (or pass --brief-file)" >&2
     exit 1
 fi
 

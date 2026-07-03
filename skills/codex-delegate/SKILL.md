@@ -68,6 +68,15 @@ with `return 2` in the hook to make it block instead of warn.
 - Wrapper run leaves machine-readable status at `<log-file>.result.json`. Acceptance is Claude's job, not the wrapper's.
 - Do not wrap the wrapper in `Start-Process`. Call it inline so file writes persist.
 
+## Brief discipline
+
+The wrapper now enforces on-disk brief traceability (added 2026-05-15 after the research-hub v0.89.1 post-release audit caught 2 orphan results from inline `--prompt` dispatches with no brief on disk).
+
+- **Brief MUST be on disk before invoking the wrapper.** Filename pattern: `.ai/codex_task_<NN_chronological_or_version>_<short_slug>.md` (e.g., `.ai/codex_task_v090_paginated_hub.md`). The brief is the audit record — if it's not on disk, post-hoc reconstruction is guesswork.
+- **Pass `--brief-file <path>` (preferred)** instead of an inline `--prompt`. The wrapper auto-derives the prompt as `Read <brief> and execute all instructions inside.` and places results next to the brief at `<brief_stem>.txt` and `<brief_stem>.txt.result.json` — no more stem drift where briefs live in `.ai/` flat and results land in `.ai/2026/05/13/`.
+- **Guard fires on inline `--prompt` > 500 chars with no brief reference.** Wrapper exits 2 with a fix-it message. Short inline prompts (e.g., `--prompt 'Read .ai/codex_task_v090.md and execute'`) still work — the guard only refuses long inline prompts that ship instructions Codex cannot trace back to a file.
+- **Escape hatch:** `CODEX_DELEGATE_ALLOW_INLINE=1` (env var) bypasses the guard. Use this for one-off shell debugging only, never for shipping tasks.
+
 ## When to delegate
 
 Mechanical → `codex` · Reasoning → `claude` · Long-context synthesis → `gemini`.
@@ -81,13 +90,12 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 2. **Run**: from Claude Code Bash, invoke the wrapper from its install location:
    ```bash
    bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
-     --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
-     --repo "$PWD" \
-     --log-file .ai/codex_log_<name>.txt
+     --brief-file .ai/codex_task_<name>.md \
+     --repo "$PWD"
    ```
-   `--repo` defaults to the caller's `$PWD`; pass `--repo "$PWD"` explicitly only if you want to be defensive about the working directory at invocation. On non-Claude-Code agentskills.io hosts, substitute the host's skills directory (e.g. `~/.hermes/skills/<category>/codex-delegate/scripts/run_codex.sh`). PowerShell variant + env vars: `references/wrapper.md`.
+   With `--brief-file` the wrapper auto-derives the prompt and places results next to the brief at `.ai/codex_task_<name>.txt` and `.ai/codex_task_<name>.txt.result.json` (canonical location — eliminates the stem-drift class where briefs and results live in different subdirs). Override with `--log-file` only when you have a reason to. `--repo` defaults to the caller's `$PWD`; pass it explicitly to be defensive about the working directory at invocation. On non-Claude-Code agentskills.io hosts, substitute the host's skills directory (e.g. `~/.hermes/skills/<category>/codex-delegate/scripts/run_codex.sh`). PowerShell variant + env vars: `references/wrapper.md`.
 
-3. **Read status**: `cat .ai/codex_log_<name>.txt.result.json`.
+3. **Read status**: `cat .ai/codex_task_<name>.txt.result.json`.
    - `success` → diff still needs review.
    - `fallback` → Codex quota hit; Claude must take over.
    - `error` → wrapper failed; check `<log>.error`.

@@ -1,9 +1,10 @@
 param(
-    [Parameter(Mandatory = $true)][string]$Prompt,
+    [string]$Prompt = "",
     [string]$Repo = "",
     [string]$Model = "gpt-5.5",
     [string]$OutputFile = "",
     [string]$LogFile = "",
+    [string]$BriefFile = "",
     [bool]$Synchronous = $true
 )
 
@@ -13,6 +14,64 @@ param(
 if (-not $Repo) { $Repo = (Get-Location).Path }
 
 $ErrorActionPreference = "Continue"
+
+# Brief discipline guard (parity with run_codex.sh):
+# Refuse inline -Prompt > 500 chars unless an on-disk brief exists.
+# Escape hatch: env var CODEX_DELEGATE_ALLOW_INLINE=1.
+if ($env:CODEX_DELEGATE_ALLOW_INLINE -ne "1") {
+    if ($BriefFile) {
+        if (-not (Test-Path -LiteralPath $BriefFile -PathType Leaf)) {
+            $alt = Join-Path $Repo $BriefFile
+            if (Test-Path -LiteralPath $alt -PathType Leaf) {
+                $BriefFile = $alt
+            } else {
+                [Console]::Error.WriteLine("codex-delegate: -BriefFile '$BriefFile' does not exist on disk.")
+                [Console]::Error.WriteLine("Write the brief first; the wrapper requires it on disk for audit traceability.")
+                exit 2
+            }
+        }
+        if (-not $Prompt) {
+            $Prompt = "Read $BriefFile and execute all instructions inside."
+        }
+        if (-not $LogFile) {
+            $briefDir = Split-Path -Parent $BriefFile
+            $briefStem = [System.IO.Path]::GetFileNameWithoutExtension($BriefFile)
+            $LogFile = Join-Path $briefDir "$briefStem.txt"
+        }
+    }
+    elseif ($Prompt -and $Prompt.Length -gt 500) {
+        $match = [regex]::Match($Prompt, '[^\s]*codex_task_[^\s]+\.md')
+        if (-not $match.Success) {
+            [Console]::Error.WriteLine("codex-delegate: brief must be on disk for audit traceability.")
+            [Console]::Error.WriteLine("  Inline prompt is $($Prompt.Length) chars (> 500) and no -BriefFile passed.")
+            [Console]::Error.WriteLine("  Write .ai\codex_task_<slug>.md first, then either:")
+            [Console]::Error.WriteLine("    pwsh run_codex.ps1 -BriefFile .ai\codex_task_<slug>.md ...")
+            [Console]::Error.WriteLine("  or")
+            [Console]::Error.WriteLine("    pwsh run_codex.ps1 -Prompt 'Read .ai\codex_task_<slug>.md and execute' ...")
+            [Console]::Error.WriteLine("  Escape hatch (one-off shell debugging): set CODEX_DELEGATE_ALLOW_INLINE=1")
+            exit 2
+        }
+        $referencedBrief = $match.Value
+        $checkPath = $referencedBrief
+        if (-not (Test-Path -LiteralPath $checkPath -PathType Leaf)) {
+            $alt = Join-Path $Repo $checkPath
+            if (Test-Path -LiteralPath $alt -PathType Leaf) {
+                $checkPath = $alt
+            }
+        }
+        if (-not (Test-Path -LiteralPath $checkPath -PathType Leaf)) {
+            [Console]::Error.WriteLine("codex-delegate: prompt references '$referencedBrief' but it does not exist on disk.")
+            [Console]::Error.WriteLine("Write the brief first; the wrapper requires it on disk for audit traceability.")
+            [Console]::Error.WriteLine("Escape hatch (one-off shell debugging): set CODEX_DELEGATE_ALLOW_INLINE=1")
+            exit 2
+        }
+    }
+}
+
+if (-not $Prompt) {
+    [Console]::Error.WriteLine("Error: -Prompt is required (or pass -BriefFile)")
+    exit 1
+}
 
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

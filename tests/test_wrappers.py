@@ -332,3 +332,222 @@ def test_run_codex_ps1_writes_result_contract(tmp_path: Path) -> None:
     assert result["status"] == "success"
     assert result["delegate"] == "codex"
     assert result["model"] == "codex/gpt-5.5"
+
+
+# --- Brief discipline guard tests (added 2026-05-15) ---
+#
+# These pin down the behavior introduced to fix the auditability gap that the
+# research-hub v0.89.1 post-release audit found: inline --prompt dispatches
+# with no brief on disk left orphan results that couldn't be traced back.
+
+def _run_sh(repo: Path, fake_codex: Path, extra_args: list[str], env_extra: dict[str, str] | None = None):
+    env = os.environ.copy()
+    env["CODEX_PATH"] = to_bash_path(fake_codex)
+    if env_extra:
+        env.update(env_extra)
+    cmd_args = " ".join(f"'{a}'" for a in extra_args)
+    return subprocess.run(
+        [
+            _BASH,
+            "-lc",
+            (
+                f"chmod +x '{to_bash_path(fake_codex)}' && "
+                f"CODEX_PATH='{to_bash_path(fake_codex)}' "
+                + (f"CODEX_DELEGATE_ALLOW_INLINE='{env_extra['CODEX_DELEGATE_ALLOW_INLINE']}' "
+                   if env_extra and "CODEX_DELEGATE_ALLOW_INLINE" in env_extra else "")
+                + f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
+                f"--repo '{to_bash_path(repo)}' {cmd_args}"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_brief_file_canonical_log_path(tmp_path: Path) -> None:
+    """--brief-file should auto-derive log path next to brief (no --log-file needed)."""
+    repo = tmp_path / "repo"
+    (repo / ".ai").mkdir(parents=True)
+    brief = repo / ".ai" / "codex_task_v090_audit.md"
+    brief.write_text("# Brief\nDo X.\n", encoding="utf-8")
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\necho 'delegate ok'\n", encoding="utf-8", newline="\n")
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    proc = _run_sh(repo, fake_codex, ["--brief-file", to_bash_path(brief)])
+
+    assert proc.returncode == 0, proc.stderr
+    canonical_log = repo / ".ai" / "codex_task_v090_audit.txt"
+    canonical_result = repo / ".ai" / "codex_task_v090_audit.txt.result.json"
+    assert canonical_log.exists(), f"canonical log missing: {canonical_log}"
+    assert canonical_result.exists(), f"canonical result.json missing: {canonical_result}"
+    result = json.loads(canonical_result.read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success"
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_inline_long_prompt_without_brief_is_refused(tmp_path: Path) -> None:
+    """Inline --prompt > 500 chars with no brief reference must exit 2."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\necho should-not-run\n", encoding="utf-8", newline="\n")
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    long_prompt = "x" * 600  # no codex_task_*.md reference anywhere
+    proc = _run_sh(repo, fake_codex, ["--prompt", long_prompt])
+
+    assert proc.returncode == 2, f"expected exit 2, got {proc.returncode}; stderr={proc.stderr}"
+    assert "brief must be on disk" in proc.stderr
+    assert "CODEX_DELEGATE_ALLOW_INLINE" in proc.stderr
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_escape_hatch_bypasses_guard(tmp_path: Path) -> None:
+    """CODEX_DELEGATE_ALLOW_INLINE=1 must let long inline prompts through."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\necho 'delegate ok'\n", encoding="utf-8", newline="\n")
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    long_prompt = "x" * 600
+    log_file = repo / ".ai" / "codex_log.txt"
+    proc = _run_sh(
+        repo,
+        fake_codex,
+        ["--prompt", long_prompt, "--log-file", to_bash_path(log_file)],
+        env_extra={"CODEX_DELEGATE_ALLOW_INLINE": "1"},
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert (repo / ".ai" / "codex_log.txt.result.json").exists()
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_prompt_with_existing_brief_reference_is_allowed(tmp_path: Path) -> None:
+    """Long inline prompt that references an EXISTING brief on disk must pass."""
+    repo = tmp_path / "repo"
+    (repo / ".ai").mkdir(parents=True)
+    brief = repo / ".ai" / "codex_task_legacy.md"
+    brief.write_text("# Brief\nDo X.\n", encoding="utf-8")
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\necho 'delegate ok'\n", encoding="utf-8", newline="\n")
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    # 600-char prompt that contains a `Read .ai/codex_task_legacy.md` reference
+    long_prompt = (
+        "Read .ai/codex_task_legacy.md and execute. " + ("filler text " * 50)
+    )
+    assert len(long_prompt) > 500
+    log_file = repo / ".ai" / "codex_log.txt"
+    proc = _run_sh(repo, fake_codex, ["--prompt", long_prompt, "--log-file", to_bash_path(log_file)])
+
+    assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_prompt_referencing_missing_brief_is_refused(tmp_path: Path) -> None:
+    """Long inline prompt referencing a brief that does NOT exist must exit 2."""
+    repo = tmp_path / "repo"
+    (repo / ".ai").mkdir(parents=True)
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\necho should-not-run\n", encoding="utf-8", newline="\n")
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    long_prompt = (
+        "Read .ai/codex_task_missing.md and execute. " + ("filler text " * 50)
+    )
+    proc = _run_sh(repo, fake_codex, ["--prompt", long_prompt])
+
+    assert proc.returncode == 2, proc.stderr
+    assert "does not exist on disk" in proc.stderr
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+def test_run_codex_ps1_brief_file_canonical_path(tmp_path: Path) -> None:
+    """PowerShell parity: -BriefFile auto-derives log path next to brief."""
+    repo = tmp_path / "repo"
+    (repo / ".ai").mkdir(parents=True)
+    brief = repo / ".ai" / "codex_task_v090_ps_audit.md"
+    brief.write_text("# Brief\nDo X.\n", encoding="utf-8")
+
+    fake_codex = tmp_path / "codex.cmd"
+    fake_codex.write_text("@echo off\r\necho delegate ok\r\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake_codex)
+
+    proc = subprocess.run(
+        [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts" / "run_codex.ps1"),
+            "-BriefFile",
+            str(brief),
+            "-Repo",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    canonical_result = repo / ".ai" / "codex_task_v090_ps_audit.txt.result.json"
+    assert canonical_result.exists(), f"canonical result.json missing: {canonical_result}"
+    result = json.loads(canonical_result.read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success"
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+def test_run_codex_ps1_inline_guard_fires(tmp_path: Path) -> None:
+    """PowerShell parity: inline -Prompt > 500 chars with no brief is refused."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "codex.cmd"
+    fake_codex.write_text("@echo off\r\necho should-not-run\r\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake_codex)
+    # ensure escape hatch is NOT set
+    env.pop("CODEX_DELEGATE_ALLOW_INLINE", None)
+
+    long_prompt = "x" * 600
+    proc = subprocess.run(
+        [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts" / "run_codex.ps1"),
+            "-Prompt",
+            long_prompt,
+            "-Repo",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert proc.returncode == 2, f"expected exit 2, got {proc.returncode}; stderr={proc.stderr}"
+    assert "brief must be on disk" in proc.stderr
