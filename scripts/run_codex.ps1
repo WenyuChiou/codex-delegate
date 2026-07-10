@@ -73,11 +73,15 @@ if (-not $Prompt) {
     exit 1
 }
 
-[Console]::InputEncoding = [System.Text.Encoding]::UTF8
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
 $env:PYTHONIOENCODING = "utf-8"
 chcp 65001 | Out-Null
+# UTF-8 console, but BOM-less and set AFTER chcp: chcp re-derives the console
+# encodings as BOM-emitting UTF-8, and PS 5.1 writes the InputEncoding /
+# $OutputEncoding preamble into a native command's stdin pipe — codex would
+# receive stray BOM bytes on its (otherwise closed) stdin.
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
 $logPath = if ($LogFile) { $LogFile } else { "$Repo\.ai\codex_output.txt" }
 $donePath = "$logPath.done"
@@ -199,7 +203,9 @@ $changedBefore = Get-GitStatusSnapshot -Path $Repo
 $filesChanged = @()
 
 try {
-    $output = & $codexBin @codexArgs 2>&1 | Out-String
+    # $null pipe gives codex a closed stdin (PowerShell has no </dev/null):
+    # codex exec blocks forever reading an inherited open stdin (issue #20919).
+    $output = $null | & $codexBin @codexArgs 2>&1 | Out-String
     $exitCode = $LASTEXITCODE
 
     $changedAfter = Get-GitStatusSnapshot -Path $Repo

@@ -516,6 +516,106 @@ def test_run_codex_ps1_brief_file_canonical_path(tmp_path: Path) -> None:
     assert result["status"] == "success"
 
 
+# --- stdin closure tests (added 2026-07-09) ---
+#
+# SKILL.md and references/wrapper.md promise the wrappers close codex's stdin
+# (upstream issue #20919: codex exec blocks forever reading an inherited open
+# stdin; 25-minute zero-byte hang on 2026-05-14). Each test feeds data on the
+# WRAPPER's stdin while a fake codex echoes back whatever it reads from its
+# own stdin. If the wrapper leaks its stdin to codex, the marker string shows
+# up in the log and the test fails.
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_run_codex_sh_closes_codex_stdin(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text(
+        "#!/usr/bin/env bash\n"
+        "DATA=$(cat)\n"
+        'printf "stdin:[%s]\\n" "$DATA"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    log_file = repo / ".ai" / "codex_log.txt"
+    env = os.environ.copy()
+    env["CODEX_PATH"] = to_bash_path(fake_codex)
+
+    proc = subprocess.run(
+        [
+            _BASH,
+            "-lc",
+            (
+                f"chmod +x '{to_bash_path(fake_codex)}' && "
+                f"CODEX_PATH='{to_bash_path(fake_codex)}' "
+                f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
+                f"--prompt 'do work' "
+                f"--repo '{to_bash_path(repo)}' "
+                f"--log-file '{to_bash_path(log_file)}'"
+            ),
+        ],
+        input="LEAKED_PARENT_STDIN\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    log = log_file.read_text(encoding="utf-8")
+    assert "stdin:[]" in log, f"codex read a non-empty stdin: {log!r}"
+    assert "LEAKED_PARENT_STDIN" not in log
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(shutil.which("python") is None, reason="python not on PATH (fake codex needs it)")
+def test_run_codex_ps1_closes_codex_stdin(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "codex.cmd"
+    fake_codex.write_text(
+        "@echo off\r\n"
+        "python -c \"import sys; print('stdin:[' + sys.stdin.read().strip() + ']')\"\r\n",
+        encoding="utf-8",
+    )
+
+    log_file = repo / ".ai" / "codex_ps_log.txt"
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake_codex)
+
+    proc = subprocess.run(
+        [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts" / "run_codex.ps1"),
+            "-Prompt",
+            "do work",
+            "-Repo",
+            str(repo),
+            "-LogFile",
+            str(log_file),
+        ],
+        input="LEAKED_PARENT_STDIN\r\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    log = log_file.read_text(encoding="utf-8-sig")
+    assert "stdin:[]" in log, f"codex read a non-empty stdin: {log!r}"
+    assert "LEAKED_PARENT_STDIN" not in log
+
+
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
 def test_run_codex_ps1_inline_guard_fires(tmp_path: Path) -> None:
     """PowerShell parity: inline -Prompt > 500 chars with no brief is refused."""

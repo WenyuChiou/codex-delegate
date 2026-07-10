@@ -198,7 +198,9 @@ EXIT_CODE=0
 # / result files are written after the after-snapshot, so they never leak in.
 CHANGED_BEFORE="$(git_status_snapshot "$REPO")"
 
-OUTPUT=$("$CODEX_BIN" "${CODEX_ARGS[@]}" 2>&1) || EXIT_CODE=$?
+# stdin must be closed: codex exec blocks forever reading an inherited open
+# stdin (upstream issue #20919; 25-min zero-byte hang on 2026-05-14).
+OUTPUT=$("$CODEX_BIN" "${CODEX_ARGS[@]}" </dev/null 2>&1) || EXIT_CODE=$?
 
 CHANGED_AFTER="$(git_status_snapshot "$REPO")"
 FILES_CHANGED_JSON="$(compute_files_changed_json "$CHANGED_BEFORE" "$CHANGED_AFTER")"
