@@ -6,7 +6,7 @@
 |----------|----------|-------|
 | `Codex` | Multi-file implementation, boilerplate, test scaffolds, mechanical refactors, batch edits | Architecture, debugging root cause, security review |
 | `Claude` | Requirements, design, API contracts, bug diagnosis, acceptance review | Large repetitive edits |
-| `Gemini` | Large-context reading, CJK / bilingual synthesis, second-opinion review | Bulk code generation, architecture decisions, security-sensitive coding |
+| ~~`Gemini`~~ | DEPRECATED 2026-06-18 (consumer CLI killed; lane fails closed). Reroute: CJK/judgment → Claude-direct; bulk mechanical → Codex | — |
 
 If the task needs deep project memory, cross-conversation judgment, or nuanced tradeoffs, keep it in Claude.
 

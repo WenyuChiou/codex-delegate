@@ -12,7 +12,7 @@ This skill is the **leaf** for Codex-side work. When a single round of work need
 
 Use a router any time **two or more** of the following are true in one round:
 
-- Both Codex and Gemini will run.
+- Codex plus any other still-supported delegate will run in the same round (Gemini lane DEPRECATED 2026-06-18 — see delegation-targets.md).
 - Two or more Codex sessions will run, with dependencies between them or shared files.
 - A reconciliation step needs to compare outputs from multiple agents against shared success criteria.
 
@@ -23,7 +23,7 @@ Pick the router by the surrounding workflow:
 | `research-hub-multi-ai` | research-hub workflows | `.coord/multi_ai_plan.md` | The round is part of a research-hub task (literature ingest, paper writing, etc.) |
 | `agent-task-splitter` | `agent-collab-skills` marketplace | `.coord/plan.yml` + `.ai/<agent>_task_<NNN>_<slug>.md` | Generic multi-agent rounds (no research-hub context) |
 
-The router owns task splitting, dependency ordering, and reconciliation. The leaves (this skill, `gemini-delegate`) only own single-task execution. Do not hand-roll multi-agent coordination from inside this skill.
+The router owns task splitting, dependency ordering, and reconciliation. The leaves (this skill; the `gemini-delegate` leaf is DEPRECATED 2026-06-18) only own single-task execution. Do not hand-roll multi-agent coordination from inside this skill.
 
 ## How a leaf round looks
 

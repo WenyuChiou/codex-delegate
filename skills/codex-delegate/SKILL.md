@@ -47,7 +47,7 @@ Drop this into your `~/.claude/CLAUDE.md` (or repo-level `CLAUDE.md`) to make th
 ## Codex routing rule (enforced)
 
 For any task that is mechanical, multi-file, has a clear pattern, or
-batch-edits ≥ 5 files: invoke `Skill("codex-delegate", args="brief=...")`.
+batch-edits ≥ 3 files (canonical tripwire: fable-style-project-harness/docs/codex-delegation-policy.md — single source; older ≥5 statements are superseded): invoke `Skill("codex-delegate", args="brief=...")`.
 Do NOT use `Bash("codex exec ...")` for shipping tasks — it loses stdin
 closure (codex hangs), the `.result.json` contract (no structured status),
 and the brief template (Codex drifts F11/F12).
@@ -79,7 +79,7 @@ The wrapper now enforces on-disk brief traceability (added 2026-05-15 after the 
 
 ## When to delegate
 
-Mechanical → `codex` · Reasoning → `claude` · Long-context synthesis → `gemini`.
+Mechanical → `codex` · Reasoning / long-context synthesis → `claude` (chunked; Gemini lane DEPRECATED 2026-06-18).
 
 Full routing table and good/bad examples: `references/delegation-targets.md`.
 
