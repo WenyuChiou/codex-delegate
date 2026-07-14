@@ -19,9 +19,9 @@ This wrapper is not cosmetic. It exists because every shipping task that bypasse
 | **`.result.json` structured contract** (`status` / `risks` / `files_changed` / `tests_run`) | You parse raw stdout. On a 10 MB log this is multi-thousand tokens of grep + interpretation per run. |
 | **Brief template** (`references/task-template.md`) | Codex drifts. F11 (over-applied a sweep rule to the meta-doc documenting the rule) and F12 (injected unrequested "Attributions: Karpathy, Simon Willison, ..." lines) both shipped from no-brief raw invocations. |
 
-### Measured token savings (real dogfood, not estimates)
+### Token-saving ratios (directional dogfood data — measured treatment, ESTIMATED control)
 
-From a 6-round mixed-workload session (`awesome-agentic-ai-zh` 2026-05-14, see `agent-collab-skills/docs/measured-benefits.md`):
+From a 6-round mixed-workload session (`awesome-agentic-ai-zh` 2026-05-14, see `agent-collab-skills/docs/measured-benefits.md`). Honest methodology note (per that doc's own words): the delegated arm was measured (bytes/3 proxy), the Claude-inline control arm was "estimated, not measured, because we didn't run the control condition" — treat every ratio below as directional, not a precise multiplier. The 17-22× row was additionally produced on the since-retired gemini lane (R4 of that session) and has not been re-measured on Codex.
 
 | Workload | Saving vs Claude-inline | When it applies to you |
 |---|---|---|
