@@ -11,6 +11,21 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+### Fixed
+
+- `scripts/run_codex.sh` / `scripts/run_codex.ps1`: the quota-pattern
+  lists didn't match codex-cli 0.144.x's new wording ("You've hit your
+  usage limit… purchase more credits"), so live quota exhaustion
+  (observed 2026-07-21) was misreported as `status="error"` instead of
+  `status="fallback"` and the `.fallback_claude` sentinel the
+  supervising agent keys on was never written. Both wrappers also now
+  gate the phrase scan on a non-zero exit code, so a successful run
+  whose transcript merely mentions a quota-like phrase can no longer be
+  reclassified as fallback and have its good diff discarded (the PS1
+  exception path passes `-ExitCode 1` — an exception is a failure).
+  Four regression tests (bash + PowerShell, quota-maps-to-fallback +
+  exit-0-stays-success), each proven red against the pre-fix wrappers.
+
 ### Added
 
 - `references/handoff-protocol.md` — bidirectional Fable↔Codex rounds via

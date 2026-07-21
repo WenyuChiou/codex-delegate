@@ -101,10 +101,20 @@ function Test-QuotaError {
     param([string]$Output, [int]$ExitCode)
 
     if ($ExitCode -eq 429) { return $true }
+    # A successful run is never a quota failure: without this gate, a
+    # legitimate exit-0 transcript that merely mentions a quota-like
+    # phrase (e.g. building a "purchase more credits" store page) would
+    # be reclassified as fallback and its good diff discarded.
+    if ($ExitCode -eq 0) { return $false }
     $patterns = @(
         "quota exceeded", "rate limit", "rate_limit", "quota_exceeded",
         "insufficient_quota", "too many requests", "RateLimitError",
-        "exceeded your current quota", "429"
+        "exceeded your current quota", "429",
+        # codex-cli 0.144.x wording (observed live 2026-07-21): keep these
+        # SPECIFIC - a match turns a hard error into fallback, so a loose
+        # pattern would mislabel real failures as quota and send the
+        # operator waiting on a reset instead of debugging.
+        "hit your usage limit", "purchase more credits"
     )
     foreach ($pattern in $patterns) {
         if ($Output -ilike "*$pattern*") { return $true }
@@ -240,7 +250,9 @@ catch {
     $changedAfter = Get-GitStatusSnapshot -Path $Repo
     $filesChanged = @(Get-FilesChanged -Before $changedBefore -After $changedAfter)
 
-    if (Test-QuotaError -Output $errMsg -ExitCode 0) {
+    # -ExitCode 1: an exception IS a failure; the pre-gate dummy 0 would
+    # now (correctly) suppress quota classification on success paths.
+    if (Test-QuotaError -Output $errMsg -ExitCode 1) {
         "[CODEX QUOTA EXCEPTION at $(Get-Date -Format o)]`n$errMsg" | Out-File $logPath -Encoding utf8
         "ALL_QUOTA_EXCEEDED|$(Get-Date -Format o)" | Out-File $errorPath -Encoding utf8
         "FALLBACK_TO_CLAUDE|$(Get-Date -Format o)" | Out-File $fallbackPath -Encoding utf8

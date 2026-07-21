@@ -108,7 +108,7 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 
 ## Compatibility
 
-- Tested with `@openai/codex` 0.128.0 (May 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
+- Tested with `@openai/codex` 0.128.0–0.144.1 (May–July 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
 - Default model: `gpt-5.5` (bumped from `gpt-5.4` on 2026-05-14 per operator preference; override via `--model` or `-Model`). `gpt-5.4` remains available and is ~3× cheaper per token if cost-sensitive — trade-offs and an A/B-test recipe live in `references/model-selection.md`. Other models on your CLI: see `codex models`.
 - Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. The older `--full-auto` flag is deprecated in 0.128+ and was replaced.
 - `codex exec` runs in non-interactive mode and auto-approves (no `--ask-for-approval` flag exists on `exec`; that flag is top-level only).

@@ -651,3 +651,209 @@ def test_run_codex_ps1_inline_guard_fires(tmp_path: Path) -> None:
 
     assert proc.returncode == 2, f"expected exit 2, got {proc.returncode}; stderr={proc.stderr}"
     assert "brief must be on disk" in proc.stderr
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash (git-bash on Windows, system bash elsewhere) not available")
+def test_run_codex_sh_new_usage_limit_message_maps_to_fallback(tmp_path: Path) -> None:
+    """codex-cli 0.144.x quota message maps to status=fallback, not error.
+
+    Observed live 2026-07-21 (codex-cli 0.144.1): the CLI now says
+    "ERROR: You've hit your usage limit. Upgrade to Pro (...) ... or try
+    again at Jul 25th, 2026 12:03 AM." and exits 1. None of the older
+    quota patterns (quota exceeded / rate limit / 429 / ...) match it, so
+    the wrapper misreported a plain hard error and skipped the
+    .fallback_claude sentinel the supervising agent keys on.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "fake_codex_quota.sh"
+    fake_codex.write_text(
+        "#!/usr/bin/env bash\n"
+        "echo \"ERROR: You've hit your usage limit. Upgrade to Pro"
+        " (https://chatgpt.com/explore/pro), visit"
+        " https://chatgpt.com/codex/settings/usage to purchase more credits"
+        " or try again at Jul 25th, 2026 12:03 AM.\" >&2\n"
+        "exit 1\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    log_file = repo / ".ai" / "codex_log.txt"
+    proc = subprocess.run(
+        [
+            _BASH,
+            "-lc",
+            (
+                f"chmod +x '{to_bash_path(fake_codex)}' && "
+                f"CODEX_PATH='{to_bash_path(fake_codex)}' "
+                f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
+                f"--prompt 'do work' "
+                f"--repo '{to_bash_path(repo)}' "
+                f"--log-file '{to_bash_path(log_file)}'"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    result_path = log_file.with_suffix(log_file.suffix + ".result.json")
+    assert result_path.exists(), f"no result.json written; stderr={proc.stderr}"
+    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    assert result["status"] == "fallback", (
+        f"new usage-limit message must map to fallback, got {result['status']!r}"
+    )
+    assert (repo / ".ai" / "codex_log.txt.fallback_claude").exists(), (
+        "fallback sentinel missing - supervising agent cannot detect quota"
+    )
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+def test_run_codex_ps1_new_usage_limit_message_maps_to_fallback(tmp_path: Path) -> None:
+    """PowerShell parity for the codex-cli 0.144.x usage-limit wording."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "codex.cmd"
+    fake_codex.write_text(
+        "@echo off\r\n"
+        "echo ERROR: You've hit your usage limit. Upgrade to Pro or visit"
+        " settings to purchase more credits or try again at Jul 25th. 1>&2\r\n"
+        "exit /b 1\r\n",
+        encoding="utf-8",
+    )
+
+    log_file = repo / ".ai" / "codex_log.txt"
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake_codex)
+
+    proc = subprocess.run(
+        [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts" / "run_codex.ps1"),
+            "-Prompt",
+            "do work",
+            "-Repo",
+            str(repo),
+            "-LogFile",
+            str(log_file),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    result_path = log_file.with_suffix(log_file.suffix + ".result.json")
+    assert result_path.exists(), f"no result.json written; stderr={proc.stderr}"
+    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    assert result["status"] == "fallback", (
+        f"new usage-limit message must map to fallback, got {result['status']!r}"
+    )
+    assert (repo / ".ai" / "codex_log.txt.fallback_claude").exists()
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash (git-bash on Windows, system bash elsewhere) not available")
+def test_run_codex_sh_exit0_with_quota_phrase_stays_success(tmp_path: Path) -> None:
+    """A SUCCESSFUL run whose output merely contains a quota-like phrase
+    must stay status=success — the quota classifier only runs on failure.
+
+    False-positive direction: without exit-code gating, a legitimate task
+    (e.g. building an in-app-purchase feature) that echoes "purchase more
+    credits" in its transcript would be silently reclassified as fallback
+    and its good diff discarded.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "fake_codex_ok.sh"
+    fake_codex.write_text(
+        "#!/usr/bin/env bash\n"
+        "echo 'implemented the store page: users can purchase more credits'\n"
+        "exit 0\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    if sys.platform != "win32":
+        os.chmod(fake_codex, 0o755)
+
+    log_file = repo / ".ai" / "codex_log.txt"
+    proc = subprocess.run(
+        [
+            _BASH,
+            "-lc",
+            (
+                f"chmod +x '{to_bash_path(fake_codex)}' && "
+                f"CODEX_PATH='{to_bash_path(fake_codex)}' "
+                f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
+                f"--prompt 'do work' "
+                f"--repo '{to_bash_path(repo)}' "
+                f"--log-file '{to_bash_path(log_file)}'"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    result_path = log_file.with_suffix(log_file.suffix + ".result.json")
+    assert result_path.exists(), f"no result.json written; stderr={proc.stderr}"
+    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success", (
+        f"exit-0 run with incidental quota phrase must stay success, got {result['status']!r}"
+    )
+    assert not (repo / ".ai" / "codex_log.txt.fallback_claude").exists()
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+def test_run_codex_ps1_exit0_with_quota_phrase_stays_success(tmp_path: Path) -> None:
+    """PowerShell parity: exit-0 output with an incidental quota phrase
+    stays status=success (Test-QuotaError is gated on failure)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    fake_codex = tmp_path / "codex.cmd"
+    fake_codex.write_text(
+        "@echo off\r\n"
+        "echo implemented the store page: users can purchase more credits\r\n"
+        "exit /b 0\r\n",
+        encoding="utf-8",
+    )
+
+    log_file = repo / ".ai" / "codex_log.txt"
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake_codex)
+
+    proc = subprocess.run(
+        [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts" / "run_codex.ps1"),
+            "-Prompt",
+            "do work",
+            "-Repo",
+            str(repo),
+            "-LogFile",
+            str(log_file),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    result_path = log_file.with_suffix(log_file.suffix + ".result.json")
+    assert result_path.exists(), f"no result.json written; stderr={proc.stderr}"
+    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success", (
+        f"exit-0 run with incidental quota phrase must stay success, got {result['status']!r}"
+    )
+    assert not (repo / ".ai" / "codex_log.txt.fallback_claude").exists()

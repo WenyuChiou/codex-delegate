@@ -161,6 +161,11 @@ is_quota_error() {
     local exit_code="$2"
 
     [[ "$exit_code" -eq 429 ]] && return 0
+    # A successful run is never a quota failure: without this gate, a
+    # legitimate exit-0 transcript that merely mentions a quota-like
+    # phrase (e.g. building a "purchase more credits" store page) would
+    # be reclassified as fallback and its good diff discarded.
+    [[ "$exit_code" -eq 0 ]] && return 1
 
     local patterns=(
         "quota exceeded"
@@ -172,6 +177,12 @@ is_quota_error() {
         "RateLimitError"
         "exceeded your current quota"
         "429"
+        # codex-cli 0.144.x wording (observed live 2026-07-21): keep these
+        # SPECIFIC - a match turns a hard error into fallback, so a loose
+        # pattern would mislabel real failures as quota and send the
+        # operator waiting on a reset instead of debugging.
+        "hit your usage limit"
+        "purchase more credits"
     )
     for p in "${patterns[@]}"; do
         if echo "$output" | grep -qi "$p"; then
