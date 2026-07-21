@@ -2,6 +2,15 @@
 
 Every wrapper run leaves machine-readable status at `<log-file>.result.json`. This is the *transport* contract; Claude still owns acceptance.
 
+## Exact usage telemetry (`codex exec --json`)
+
+For cost accounting, prefer `codex exec --json` over log-size estimation:
+canonical usage = `input + cache_read + cache_write + output` tokens, with
+reasoning tokens reported separately (not folded into the total). This path
+produced 7/7 exact usage rows in the fable-method-harness v3 activation
+probe (2026-07-15) and is the recommended way to record per-round cost in
+handoff replies (`references/handoff-protocol.md`).
+
 ## Schema
 
 ```json

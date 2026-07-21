@@ -1,5 +1,8 @@
 # Codex-delegate in a router/leaves architecture
 
+> Bidirectional single-delegate round-trips (not splitter rounds) use the
+> separate `.ai/handoff/` namespace — see `handoff-protocol.md`.
+
 This skill is the **leaf** for Codex-side work. When a single round of work needs more than one delegate, a router writes the plan first and the leaves read their per-task brief from it.
 
 ## When to use this skill directly (no router)

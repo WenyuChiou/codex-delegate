@@ -1,5 +1,9 @@
 # Codex task brief template
 
+> For BIDIRECTIONAL multi-round work (iterative implementation, ai-review
+> experiment rounds), use the separate `.ai/handoff/` namespace instead —
+> see `handoff-protocol.md`. This template is the one-way task→result shape.
+
 Save the brief at `.ai/codex_task_<name>.md`. If the task is part of a multi-agent run planned by `agent-task-splitter`, the brief is already at `.ai/codex_task_<NNN>_<slug>.md`; read `.coord/plan.yml` for round context first.
 
 ## Template

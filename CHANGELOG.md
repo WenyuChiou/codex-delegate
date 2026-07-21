@@ -13,6 +13,18 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ### Added
 
+- `references/handoff-protocol.md` — bidirectional Fable↔Codex rounds via
+  `.ai/handoff/NNN_<slug>.to_codex.md` / `.to_fable.md` files (replaces
+  clipboard transport); documents the harness-aware brief rule (do not
+  re-teach discipline to repos carrying the fable-method-harness
+  conditional pointer; Codex live probe 4/4 / 0/2 / 1/1), the
+  `codex exec --json` exact-usage telemetry pattern, the Codex-app
+  one-fixed-sentence flow with its cwd precondition, and the honest
+  gitignore mechanics (Codex's file-read tool does not honor .gitignore —
+  a future gitignore-honoring CLI needs stdin piping per the F1 lesson).
+  SKILL.md gains a Harness-aware delegation section; output-contract.md
+  gains the usage-telemetry section.
+
 - `references/codex-prompt-blocks.md` — composable XML prompt blocks
   (`<verification_loop>`, `<grounding_rules>`, `<action_safety>`, …), four
   task recipes, and a prompt anti-pattern table for judgment-sensitive briefs.
