@@ -99,10 +99,20 @@ def test_case_distinct_dirty_paths(tmp_path, shell):
 @pytest.mark.parametrize('shell', ['bash', 'powershell'])
 @pytest.mark.parametrize('filename', ['quoted "file".bin', 'name -> arrow.bin', 'spaced file.bin', 'unicode-測試.bin'])
 def test_filename_identity(tmp_path, shell, filename):
-    if os.name == 'nt' and '"' in filename: pytest.skip('Windows forbids double quotes in filenames')
+    if os.name == 'nt' and any(character in filename for character in '"<>'):
+        pytest.skip('Windows cannot represent quote or angle-bracket filenames')
     p, result, _, _ = invoke(tmp_path, shell, filename=filename)
     assert p.returncode == 0, p.stderr
     assert result['files_changed'] == [filename]
+
+@pytest.mark.parametrize('filename', ['quoted "file".bin', 'name -> arrow.bin'])
+def test_windows_unrepresentable_filename_guard(tmp_path, monkeypatch, filename):
+    # Reproduce the hosted Windows setup failure boundary without pretending
+    # these invalid names can reach either native wrapper on that platform.
+    with monkeypatch.context() as context:
+        context.setattr(os, 'name', 'nt')
+        with pytest.raises(pytest.skip.Exception, match='cannot represent'):
+            test_filename_identity(tmp_path, 'bash', filename)
 
 @pytest.mark.parametrize('shell', ['bash', 'powershell'])
 @pytest.mark.parametrize('output,code,status', [
