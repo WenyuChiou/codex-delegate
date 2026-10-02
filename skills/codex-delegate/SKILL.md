@@ -11,13 +11,23 @@ Claude is the supervisor. Codex CLI runs the mechanical work. Claude plans, cons
 
 ## Why use this instead of raw `codex exec`
 
-This wrapper is not cosmetic. It exists because every shipping task that bypasses it loses one of three things that have caused real incidents:
+Use this as a minimal adapter when the supervising workflow needs its legacy
+sidecar/sentinel contract and on-disk brief convention. Native `codex exec
+--json` already provides machine-readable events, and the official
+[`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) supplies
+Claude Code delegation, job tracking, and resume. Prefer those facilities when
+they satisfy the workflow; do not build another broker in this wrapper.
 
 | What the wrapper handles | What raw `codex exec` costs you |
 |---|---|
-| **stdin closure** (`</dev/null`) | Codex hangs indefinitely (issue #20919). One session hit a 25-minute zero-byte hang on 2026-05-14 because the supervising agent forgot the redirect. |
-| **`.result.json` structured contract** (`status` / `risks` / `files_changed` / `tests_run`) | You parse raw stdout. On a 10 MB log this is multi-thousand tokens of grep + interpretation per run. |
-| **Brief template** (`references/task-template.md`) | Codex drifts. F11 (over-applied a sweep rule to the meta-doc documenting the rule) and F12 (injected unrequested "Attributions: Karpathy, Simon Willison, ..." lines) both shipped from no-brief raw invocations. |
+| **stdin closure** (`</dev/null`) | A direct caller must close stdin or use the CLI's intended prompt-input mode. A historical session hit a 25-minute zero-byte hang on 2026-05-14. This is not an exclusive wrapper capability. |
+| **Legacy `.result.json` / sentinel contract** | A caller using native `--json` events must adapt them if a downstream consumer expects these sidecars. `risks` and `tests_run` remain empty placeholders until supervisor acceptance. |
+| **Brief convention** (`references/task-template.md`) | Both direct Codex and the official plugin can receive the same scoped brief. The wrapper validates a brief path; it does not prevent drift or enforce allowed paths. Historical F11/F12 incidents motivate independent scope review. |
+
+No matched live comparison has established superior coding quality or total
+model-token savings for this wrapper versus the official plugin. The ratios
+below compare delegation with an estimated Claude-inline control, not with
+native Codex or the official plugin.
 
 ### Token-saving ratios (directional dogfood data — measured treatment, ESTIMATED control)
 

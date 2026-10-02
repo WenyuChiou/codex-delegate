@@ -19,32 +19,55 @@ json_escape() {
     "$PYTHON_JSON_BIN" -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
 }
 
-# Snapshot the repo's changed-file set via `git status --porcelain`.
-# Returns empty when the path is not a git work tree (or git is absent), so
-# files_changed degrades to [] instead of failing the run.
+# Snapshot dirty paths and their content identity. Porcelain status alone
+# misses additional edits to already-dirty files. NUL records preserve names.
+# This is best-effort attribution, not a scope or acceptance gate.
 git_status_snapshot() {
-    git -C "$1" -c core.quotePath=false status --porcelain 2>/dev/null || true
+    "$PYTHON_JSON_BIN" -c '
+import hashlib, json, os, subprocess, sys
+root = sys.argv[1]
+snapshot = {}
+try:
+    result = subprocess.run(["git", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all"], capture_output=True, check=True)
+    records = iter(result.stdout.split(b"\0"))
+    for record in records:
+        if not record:
+            continue
+        status, relative = record[:2].decode("ascii"), os.fsdecode(record[3:])
+        if "R" in status or "C" in status:
+            original = os.fsdecode(next(records, b""))
+            if "R" in status and original:
+                snapshot[original] = [status, "renamed-source"]
+        full = os.path.join(root, relative)
+        try:
+            if os.path.islink(full):
+                identity = "link:" + os.readlink(full)
+            elif os.path.isfile(full):
+                digest = hashlib.sha256()
+                with open(full, "rb") as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                identity = "sha256:" + digest.hexdigest()
+            else:
+                identity = "directory" if os.path.isdir(full) else "missing"
+        except OSError:
+            identity = "unreadable"
+        snapshot[relative] = [status, identity]
+except (OSError, subprocess.CalledProcessError):
+    pass
+print(json.dumps(snapshot))
+' "$1"
 }
 
-# Diff two porcelain snapshots and emit a JSON array of paths that became
-# changed during the run. A file already dirty before the run, with an
-# unchanged porcelain status line, is intentionally not re-reported (it was
-# not this run's doing). Falls back to [] on any error.
+# Compare both directions: content edits, deletions, and restoring a dirty
+# path to clean are changes even if Git status stays identical or disappears.
 compute_files_changed_json() {
-    "$PYTHON_JSON_BIN" -c '
+    printf "%s\n%s\n" "$1" "$2" | "$PYTHON_JSON_BIN" -c '
 import json, sys
-before = set(sys.argv[1].splitlines())
-after = set(sys.argv[2].splitlines())
-paths = set()
-for line in after - before:
-    entry = line[3:] if len(line) > 3 else ""
-    if " -> " in entry:                 # renamed: "old -> new"
-        entry = entry.split(" -> ", 1)[1]
-    entry = entry.strip().strip(chr(34))
-    if entry:
-        paths.add(entry)
-print(json.dumps(sorted(paths)))
-' "$1" "$2" 2>/dev/null || printf '[]'
+before = json.loads(sys.stdin.readline())
+after = json.loads(sys.stdin.readline())
+print(json.dumps(sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))))
+' 2>/dev/null || printf '[]'
 }
 
 write_result_json() {
@@ -75,6 +98,7 @@ PROMPT=""
 # Default --repo to the caller's working directory for portable installs.
 REPO="${PWD}"
 MODEL="gpt-5.5"
+SANDBOX="workspace-write"
 OUTPUT_FILE=""
 LOG_FILE=""
 BRIEF_FILE=""
@@ -84,6 +108,7 @@ while [[ $# -gt 0 ]]; do
         --prompt)       PROMPT="$2";      shift 2 ;;
         --repo)         REPO="$2";        shift 2 ;;
         --model)        MODEL="$2";       shift 2 ;;
+        --sandbox)      SANDBOX="$2";     shift 2 ;;
         --output-file)  OUTPUT_FILE="$2"; shift 2 ;;
         --log-file)     LOG_FILE="$2";    shift 2 ;;
         --brief-file)   BRIEF_FILE="$2";  shift 2 ;;
@@ -91,6 +116,11 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
+
+case "$SANDBOX" in
+    read-only|workspace-write) ;;
+    *) echo "Error: --sandbox must be read-only or workspace-write" >&2; exit 2 ;;
+esac
 
 # Brief discipline: refuse inline prompts > 500 chars unless a brief is on disk.
 # Auditability gap fix (research-hub v0.89.1 post-release audit, 2026-05-15):
@@ -180,7 +210,6 @@ is_quota_error() {
         "too many requests"
         "RateLimitError"
         "exceeded your current quota"
-        "429"
         # codex-cli 0.144.x wording (observed live 2026-07-21): keep these
         # SPECIFIC - a match turns a hard error into fallback, so a loose
         # pattern would mislabel real failures as quota and send the
@@ -193,13 +222,18 @@ is_quota_error() {
             return 0
         fi
     done
+    # A bare number can be a line number, port, or task content. Require an
+    # HTTP/status context rather than converting unrelated failures to exit 0.
+    if printf '%s' "$output" | grep -Eqi '(^|[^[:alnum:]_])(HTTP([/][0-9.]+)?[[:space:]:=-]*429|status([[:space:]_-]*code)?[[:space:]:=-]*429)([^0-9]|$)'; then
+        return 0
+    fi
     return 1
 }
 
 PROMPT_FILE="$(mktemp /tmp/codex_prompt_XXXXXX.txt)"
 printf '%s' "$PROMPT" > "$PROMPT_FILE"
 
-CODEX_ARGS=("exec" "--sandbox" "workspace-write" "-C" "$REPO" "-m" "$MODEL")
+CODEX_ARGS=("exec" "--sandbox" "$SANDBOX" "-C" "$REPO" "-m" "$MODEL")
 [[ -n "$OUTPUT_FILE" ]] && CODEX_ARGS+=("-o" "$OUTPUT_FILE")
 CODEX_ARGS+=("$(cat "$PROMPT_FILE")")
 rm -f "$PROMPT_FILE"
@@ -208,8 +242,8 @@ CODEX_BIN="${CODEX_PATH:-codex}"
 OUTPUT=""
 EXIT_CODE=0
 
-# Snapshot the repo before the run so files_changed can attribute edits to
-# this run only. Taken before the codex call; the wrapper's own log / sentinel
+# Snapshot the repo before the run so files_changed observes its path/content
+# delta, including concurrent writers. Taken before the codex call; log / sentinel
 # / result files are written after the after-snapshot, so they never leak in.
 CHANGED_BEFORE="$(git_status_snapshot "$REPO")"
 

@@ -2,11 +2,16 @@ param(
     [string]$Prompt = "",
     [string]$Repo = "",
     [string]$Model = "gpt-5.5",
+    [ValidateSet("read-only", "workspace-write")]
+    [string]$Sandbox = "workspace-write",
     [string]$OutputFile = "",
     [string]$LogFile = "",
     [string]$BriefFile = "",
     [bool]$Synchronous = $true
 )
+
+# ValidateSet is case-insensitive, while Codex requires canonical values.
+$Sandbox = $Sandbox.ToLowerInvariant()
 
 # Default --repo to the caller's working directory.
 # Resolved here (not at param default) so it reflects the shell's PWD
@@ -112,7 +117,7 @@ function Test-QuotaError {
     $patterns = @(
         "quota exceeded", "rate limit", "rate_limit", "quota_exceeded",
         "insufficient_quota", "too many requests", "RateLimitError",
-        "exceeded your current quota", "429",
+        "exceeded your current quota",
         # codex-cli 0.144.x wording (observed live 2026-07-21): keep these
         # SPECIFIC - a match turns a hard error into fallback, so a loose
         # pattern would mislabel real failures as quota and send the
@@ -122,6 +127,8 @@ function Test-QuotaError {
     foreach ($pattern in $patterns) {
         if ($Output -ilike "*$pattern*") { return $true }
     }
+    # Bare 429 also occurs in source line numbers and unrelated task output.
+    if ($Output -imatch '(?<![a-z0-9_])(HTTP(?:/[0-9.]+)?[\s:=-]*429|status(?:[\s_-]*code)?[\s:=-]*429)(?![0-9])') { return $true }
     return $false
 }
 
@@ -168,35 +175,72 @@ function Write-ResultJson {
     [System.IO.File]::WriteAllText($resultPath, $json, $utf8NoBom)
 }
 
-# Snapshot the repo's changed-file set via `git status --porcelain`.
-# Returns an empty array when the path is not a git work tree (or git is
-# absent), so files_changed degrades to [] instead of failing the run.
+# Snapshot dirty paths plus their content identity. Use raw NUL-delimited
+# output so quoting, whitespace, and rename arrows cannot corrupt path names.
+# This is best-effort attribution, not a scope or acceptance gate.
 function Get-GitStatusSnapshot {
     param([string]$Path)
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return @() }
-    $out = & git -C $Path -c core.quotePath=false status --porcelain 2>$null
-    if ($LASTEXITCODE -ne 0) { return @() }
-    # `git status` on a clean repo yields $null; strip it so the result is a
-    # true empty array, not @($null) (a 1-element array holding null).
-    return @($out | Where-Object { $null -ne $_ })
+    $snapshot = New-Object 'System.Collections.Generic.Dictionary[string,string]' -ArgumentList ([StringComparer]::Ordinal)
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCommand) { return $snapshot }
+    try {
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $gitCommand.Source
+        $startInfo.Arguments = "status --porcelain=v1 -z --untracked-files=all"
+        $startInfo.WorkingDirectory = $Path
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding($false)
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        [void]$process.Start()
+        $raw = $process.StandardOutput.ReadToEnd()
+        [void]$process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        $code = $process.ExitCode
+        $process.Dispose()
+        if ($code -ne 0) { return $snapshot }
+        $records = $raw.Split([char]0)
+        for ($i = 0; $i -lt $records.Length; $i++) {
+            $record = $records[$i]
+            if ($record.Length -lt 4) { continue }
+            $status = $record.Substring(0, 2)
+            $relative = $record.Substring(3)
+            if ($status -match '[RC]') {
+                $i++
+                if ($status -match 'R' -and $i -lt $records.Length) { $snapshot[$records[$i]] = "$status|renamed-source" }
+            }
+            $fullPath = Join-Path $Path $relative
+            $identity = "missing"
+            try {
+                $item = Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop
+                if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                    $identity = "link:" + ($item.Target -join ";")
+                } elseif ($item.PSIsContainer) {
+                    $identity = "directory"
+                } else {
+                    $identity = "sha256:" + (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256 -ErrorAction Stop).Hash
+                }
+            } catch {
+                if (Test-Path -LiteralPath $fullPath) { $identity = "unreadable" }
+            }
+            $snapshot[$relative] = "$status|$identity"
+        }
+    } catch { return @{} }
+    return $snapshot
 }
 
-# Diff two porcelain snapshots; return the paths that became changed during
-# the run. A file already dirty before the run, with an unchanged porcelain
-# status line, is intentionally not re-reported (it was not this run's doing).
+# Compare both directions, including dirty files restored to a clean state.
 function Get-FilesChanged {
-    param([string[]]$Before = @(), [string[]]$After = @())
-    $beforeSet = New-Object 'System.Collections.Generic.HashSet[string]'
-    foreach ($line in $Before) { [void]$beforeSet.Add($line) }
-    $paths = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($line in $After) {
-        if ($beforeSet.Contains($line)) { continue }
-        $entry = if ($line.Length -gt 3) { $line.Substring(3) } else { "" }
-        if ($entry -match ' -> ') { $entry = ($entry -split ' -> ', 2)[1] }   # renamed
-        $entry = $entry.Trim().Trim('"')
-        if ($entry) { [void]$paths.Add($entry) }
+    param([System.Collections.IDictionary]$Before = @{}, [System.Collections.IDictionary]$After = @{})
+    $paths = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList ([StringComparer]::Ordinal)
+    foreach ($relative in @($Before.Keys) + @($After.Keys)) {
+        if ($Before[$relative] -cne $After[$relative]) { [void]$paths.Add($relative) }
     }
-    return @($paths | Sort-Object -Unique)
+    [string[]]$ordered = @($paths)
+    [Array]::Sort($ordered, [StringComparer]::Ordinal)
+    return $ordered
 }
 
 $promptFile = Join-Path ([System.IO.Path]::GetTempPath()) "codex_prompt_$(Get-Random).txt"
@@ -204,13 +248,13 @@ $Prompt | Out-File -FilePath $promptFile -Encoding utf8
 $safePrompt = Get-Content $promptFile -Raw -Encoding utf8
 Remove-Item $promptFile -ErrorAction SilentlyContinue
 
-$codexArgs = @("exec", "--sandbox", "workspace-write", "-C", $Repo, "-m", $Model)
+$codexArgs = @("exec", "--sandbox", $Sandbox, "-C", $Repo, "-m", $Model)
 if ($OutputFile) { $codexArgs += @("-o", $OutputFile) }
 $codexArgs += $safePrompt
 $codexBin = if ($env:CODEX_PATH) { $env:CODEX_PATH } else { "codex" }
 
-# Snapshot the repo before the run so files_changed attributes edits to this
-# run only. Captured before the codex call; the wrapper's own log / sentinel /
+# Snapshot the repo before the run so files_changed observes its path/content
+# delta, including concurrent writers. Captured before Codex; log / sentinel /
 # result files are written after the after-snapshot, so they never leak in.
 $changedBefore = Get-GitStatusSnapshot -Path $Repo
 $filesChanged = @()

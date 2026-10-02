@@ -42,6 +42,14 @@ capable, broker-based plugin — and a different design point from this skill.
 The two are complementary; the table below is meant to help you pick, not to
 rank them.
 
+For a normal Claude Code integration, prefer the official plugin when its
+runtime fits your environment. Retain this wrapper as a minimal compatibility
+adapter when an existing workflow requires `.ai` briefs, the legacy
+`result.json`/sentinel contract, a synchronous one-shot process, or the
+PowerShell/Bash distribution. Do not add a second broker here. Neither this
+wrapper nor its brief template has demonstrated better coding quality or
+lower total model cost than the official plugin on matched live tasks.
+
 | Aspect | `codex-delegate` (this repo) | `openai/codex-plugin-cc` |
 |---|---|---|
 | Form | A single Claude Code skill | A multi-command plugin suite |
@@ -50,14 +58,15 @@ rank them.
 | Invocation | Claude invokes the skill; the wrapper script runs Codex | Slash commands (`/codex:review`, `/codex:rescue`, …) plus a proactive subagent |
 | Review gate | Claude's own acceptance gate (`skills/codex-delegate/references/review-checklist.md`) | Optional `Stop`-hook review gate |
 | Platform | `bash` + PowerShell wrappers, Windows-tested, no Node runtime | Node.js 18.18+ runtime |
-| Delegate routing | Three-way Claude / Codex / Gemini routing table | Codex-focused |
+| Delegate routing | Claude supervisor / Codex mechanical execution guidance | Codex-focused |
 | Maintainer · License | Wenyu Chiou · MIT | OpenAI · Apache-2.0 |
 
 In short: reach for `codex-plugin-cc` when you want background async jobs, a
 slash-command UX, and an OpenAI-maintained integration. Reach for
-`codex-delegate` when you want a thin, synchronous, supervisor-gated skill that
-keeps acceptance in Claude, behaves the same on Windows and Linux, and routes
-across Claude / Codex / Gemini.
+`codex-delegate` when you need a thin, synchronous compatibility adapter with
+the existing result contract. The supervisor must still verify scope and
+tests; the wrapper is not an acceptance engine. Hosted Windows/Linux fixture
+tests verify transport behavior, not native Claude loading or model quality.
 
 `codex-delegate` also borrows from the official plugin: the prompt-engineering
 reference (`skills/codex-delegate/references/codex-prompt-blocks.md`) is adapted
