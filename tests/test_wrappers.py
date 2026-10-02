@@ -20,7 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -61,6 +61,18 @@ def to_bash_path(path: Path) -> str:
         tail = resolved.as_posix().split(":", 1)[1]
         return f"/{drive}{tail}"
     return resolved.as_posix()
+
+
+def _brief_path_identity(value: str, platform: str | None = None):
+    """Compare the same full path across Git Bash and native Windows forms."""
+    platform = sys.platform if platform is None else platform
+    if platform == "win32":
+        # MSYS may retain /c/... or convert a native-process argument to
+        # C:/.... Both identify the same Windows file, not a different brief.
+        if len(value) >= 3 and value[0] == "/" and value[1].isalpha() and value[2] == "/":
+            value = value[1] + ":" + value[2:]
+        return PureWindowsPath(value)
+    return Path(value).resolve()
 
 
 _BASH = _resolve_bash()
@@ -898,7 +910,10 @@ def test_relative_brief_resolves_before_codex_changes_cwd(tmp_path: Path, brief_
     assert proc.returncode == 0, proc.stderr
     log = brief.with_suffix(".txt")
     assert log.is_file(), "results must stay beside the accepted brief"
-    assert f"brief:[{to_bash_path(brief)}]" in log.read_text(encoding="utf-8")
+    line = next(line for line in log.read_text(encoding="utf-8").splitlines()
+                if line.startswith("brief:[") and line.endswith("]"))
+    reported = line[len("brief:["):-1]
+    assert _brief_path_identity(reported) == _brief_path_identity(str(brief.resolve()))
     result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
     assert result["status"] == "success"
 
@@ -991,3 +1006,15 @@ def test_default_powershell_log_and_result_stay_inside_repo(tmp_path: Path, stat
 ])
 def test_powershell_resolver_preserves_windows_gate(platform, available, expected):
     assert _resolve_powershell(platform, available.get) == expected
+
+
+@pytest.mark.parametrize("reported, expected, same", [
+    ("/c/Users/runner/caller/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", True),
+    (r"C:\Users\runner\caller\.ai\task.md", "/c/Users/runner/caller/.ai/task.md", True),
+    ("c:/Users/runner/caller/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", True),
+    ("/d/Users/runner/caller/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", False),
+    ("C:/Users/runner/repo/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", False),
+    ("C:/Users/runner/caller/.ai/decoy.md", "C:/Users/runner/caller/.ai/task.md", False),
+])
+def test_windows_brief_path_identity_preserves_full_file_reference(reported, expected, same):
+    assert (_brief_path_identity(reported, "win32") == _brief_path_identity(expected, "win32")) is same
