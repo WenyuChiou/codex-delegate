@@ -7,26 +7,34 @@ The `scripts/run_codex.sh` and `scripts/run_codex.ps1` wrappers run Codex CLI sy
 ### From Claude Code Bash (recommended)
 
 ```bash
-bash scripts/run_codex.sh \
-  --prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." \
-  --log-file .ai/codex_log_<name>.txt
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh" \
+  --brief-file .ai/codex_task_<name>.md \
+  --repo "$PWD"
 ```
+
+`${CLAUDE_PLUGIN_ROOT}` is resolved in a marketplace-loaded skill. For a
+repository checkout, use `scripts/run_codex.sh`; for a direct portable skill,
+use `<skill-root>/scripts/run_codex.sh`.
 
 Optional flags:
 
+- `--brief-file <path>`: on-disk brief, resolved absolutely (caller-first, then repo-relative); derives prompt/log when omitted
+- `--prompt <text>`: explicit prompt override
+- `--log-file <path>`: log/sentinel/result location; parent directory must exist
 - `--repo <path>`: project root (default: the caller's `$PWD`)
 - `--model <name>`: model string passed to `codex exec -m`
+- `--sandbox <read-only|workspace-write>`: forwarded to Codex; default remains `workspace-write`
 - `--output-file <path>`: passed to `codex exec -o`
 
 ### From PowerShell (direct call)
 
 ```powershell
-& "C:\Users\wenyu\.claude\skills\codex-delegate\scripts\run_codex.ps1" `
-    -Prompt "Read .ai/codex_task_<name>.md and execute all instructions inside." `
-    -LogFile "C:\Users\wenyu\<repo>\.ai\codex_log_<name>.txt"
+& "<skill-root>\scripts\run_codex.ps1" `
+    -BriefFile ".ai\codex_task_<name>.md" `
+    -Repo (Get-Location).Path
 ```
 
-PowerShell parameters: `-Prompt` (required), `-Repo`, `-Model`, `-OutputFile`, `-LogFile`, `-Synchronous`.
+PowerShell parameters: `-BriefFile` or `-Prompt`, `-Repo`, `-Model`, `-Sandbox`, `-OutputFile`, `-LogFile`, `-Synchronous`. `-Sandbox` accepts `read-only` or `workspace-write`, with the existing `workspace-write` default. Marketplace hosts can resolve the plugin-root script instead.
 
 **Do not** wrap these in `Start-Process`. Call them inline so file writes persist before the wrapper exits.
 
@@ -40,9 +48,14 @@ codex exec --sandbox workspace-write -m gpt-5.5 \
   < /dev/null > .ai/codex_log_<name>.txt 2>&1
 ```
 
-Note: `--full-auto` is deprecated in codex CLI 0.128+. Use `--sandbox workspace-write`. There is no `--ask-for-approval` flag on `codex exec` (that flag is only on the top-level `codex` command); non-interactive mode auto-approves.
+Observed CLI `0.159.0-alpha.7` exposes `--sandbox workspace-write` and has no `--full-auto` or exec-local `--ask-for-approval` option. Sandbox selection is not blanket permission: the installed host's approval and policy settings still apply. `-C`/`--cd` means a working-root directory, not a context-file argument. See [runtime compatibility](runtime-compatibility.md) and the [official CLI reference](https://developers.openai.com/codex/cli/reference/).
 
 The wrappers handle stdin closure and sandbox flag internally; direct `codex exec` calls do not.
+
+Sandbox forwarding is a transport setting, not an independently enforced
+permission boundary. The wrapper does not grant additional authority, audit
+in-scope paths, or certify the installed Codex sandbox. Use `read-only` for an
+inspection task when appropriate; the host's policies still apply.
 
 ## Environment variables
 

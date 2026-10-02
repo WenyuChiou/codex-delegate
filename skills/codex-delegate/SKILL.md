@@ -2,7 +2,7 @@
 name: codex-delegate
 description: Delegates implementation-heavy or repetitive coding work (batch edits, boilerplate, multi-file refactors with clear patterns, test scaffolding) from Claude to OpenAI Codex CLI. Use when token cost outweighs judgment cost. Trigger phrases include "delegate to codex", "let codex do this", "batch refactor across files", "scaffold tests for". Avoid for architecture, security review, or root-cause debugging.
 license: MIT
-compatibility: Designed for Claude Code. Portable across agentskills.io-compliant hosts; the wrapper script lives at <skill-root>/scripts/run_codex.sh — adapt the example path to your host's skills directory (e.g. ~/.claude/skills/codex-delegate/ on Claude Code, ~/.hermes/skills/<category>/codex-delegate/ on Hermes).
+compatibility: Designed for Claude Code. Marketplace plugins use ${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh; direct agentskills.io-compatible installations bundle scripts under <skill-root>/scripts/. Resolve paths for the installed host rather than assuming a user skills directory.
 ---
 
 # Codex Delegate Skill
@@ -11,13 +11,23 @@ Claude is the supervisor. Codex CLI runs the mechanical work. Claude plans, cons
 
 ## Why use this instead of raw `codex exec`
 
-This wrapper is not cosmetic. It exists because every shipping task that bypasses it loses one of three things that have caused real incidents:
+Use this as a minimal adapter when the supervising workflow needs its legacy
+sidecar/sentinel contract and on-disk brief convention. Native `codex exec
+--json` already provides machine-readable events, and the official
+[`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) supplies
+Claude Code delegation, job tracking, and resume. Prefer those facilities when
+they satisfy the workflow; do not build another broker in this wrapper.
 
 | What the wrapper handles | What raw `codex exec` costs you |
 |---|---|
-| **stdin closure** (`</dev/null`) | Codex hangs indefinitely (issue #20919). One session hit a 25-minute zero-byte hang on 2026-05-14 because the supervising agent forgot the redirect. |
-| **`.result.json` structured contract** (`status` / `risks` / `files_changed` / `tests_run`) | You parse raw stdout. On a 10 MB log this is multi-thousand tokens of grep + interpretation per run. |
-| **Brief template** (`references/task-template.md`) | Codex drifts. F11 (over-applied a sweep rule to the meta-doc documenting the rule) and F12 (injected unrequested "Attributions: Karpathy, Simon Willison, ..." lines) both shipped from no-brief raw invocations. |
+| **stdin closure** (`</dev/null`) | A direct caller must close stdin or use the CLI's intended prompt-input mode. A historical session hit a 25-minute zero-byte hang on 2026-05-14. This is not an exclusive wrapper capability. |
+| **Legacy `.result.json` / sentinel contract** | A caller using native `--json` events must adapt them if a downstream consumer expects these sidecars. `risks` and `tests_run` remain empty placeholders until supervisor acceptance. |
+| **Brief convention** (`references/task-template.md`) | Both direct Codex and the official plugin can receive the same scoped brief. The wrapper validates a brief path; it does not prevent drift or enforce allowed paths. Historical F11/F12 incidents motivate independent scope review. |
+
+No matched live comparison has established superior coding quality or total
+model-token savings for this wrapper versus the official plugin. The ratios
+below compare delegation with an estimated Claude-inline control, not with
+native Codex or the official plugin.
 
 ### Token-saving ratios (directional dogfood data — measured treatment, ESTIMATED control)
 
@@ -89,11 +99,11 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 
 2. **Run**: from Claude Code Bash, invoke the wrapper from its install location:
    ```bash
-   bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh" \
      --brief-file .ai/codex_task_<name>.md \
      --repo "$PWD"
    ```
-   With `--brief-file` the wrapper auto-derives the prompt and places results next to the brief at `.ai/codex_task_<name>.txt` and `.ai/codex_task_<name>.txt.result.json` (canonical location — eliminates the stem-drift class where briefs and results live in different subdirs). Override with `--log-file` only when you have a reason to. `--repo` defaults to the caller's `$PWD`; pass it explicitly to be defensive about the working directory at invocation. On non-Claude-Code agentskills.io hosts, substitute the host's skills directory (e.g. `~/.hermes/skills/<category>/codex-delegate/scripts/run_codex.sh`). PowerShell variant + env vars: `references/wrapper.md`.
+   With `--brief-file` the wrapper auto-derives the prompt and places results next to the brief at `.ai/codex_task_<name>.txt` and `.ai/codex_task_<name>.txt.result.json` (canonical location — eliminates the stem-drift class where briefs and results live in different subdirs). Override with `--log-file` only when you have a reason to. `--repo` defaults to the caller's `$PWD`; pass it explicitly to be defensive about the working directory at invocation. For direct skills installations, substitute `<skill-root>/scripts/run_codex.sh`; the packaged mirrors are self-contained. `--brief-file` resolves the accepted path absolutely before Codex changes cwd, with caller-first lookup and repo-relative fallback preserved. PowerShell variant + env vars: `references/wrapper.md`.
 
 3. **Read status**: `cat .ai/codex_task_<name>.txt.result.json`.
    - `success` → diff still needs review.
@@ -109,9 +119,9 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 ## Compatibility
 
 - Tested with `@openai/codex` 0.128.0–0.144.1 (May–July 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
-- Default model: `gpt-5.5` (bumped from `gpt-5.4` on 2026-05-14 per operator preference; override via `--model` or `-Model`). `gpt-5.4` remains available and is ~3× cheaper per token if cost-sensitive — trade-offs and an A/B-test recipe live in `references/model-selection.md`. Other models on your CLI: see `codex models`.
-- Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. The older `--full-auto` flag is deprecated in 0.128+ and was replaced.
-- `codex exec` runs in non-interactive mode and auto-approves (no `--ask-for-approval` flag exists on `exec`; that flag is top-level only).
+- Legacy wrapper default model: `gpt-5.5`; override explicitly via `--model` or `-Model`. Availability and pricing depend on the account and installed CLI. `references/model-selection.md` contains a historical A/B snapshot, not a current price guarantee. Use the interactive `/model` picker to inspect available models.
+- Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. In observed CLI `0.159.0-alpha.7`, `-C`/`--cd` selects a working-root directory, not a context file; `--full-auto` is absent. Check `codex exec --help` for your installed version. See `references/runtime-compatibility.md` for the primary-source checks and limits.
+- `codex exec` is non-interactive. Sandbox selection is not blanket permission: the installed host's approval and policy settings still apply. The observed CLI has no exec-local `--ask-for-approval` option; do not infer bypassed approval or expand access from that absence.
 - Direct `codex exec` calls must close stdin (`</dev/null`) to avoid the historical hang (issue #20919).
 - PowerShell wrapper requires `$ErrorActionPreference` to NOT be `Stop` so stderr writes (warnings, banners) don't trip the catch block.
 

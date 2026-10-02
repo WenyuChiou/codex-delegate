@@ -33,7 +33,7 @@ handoff replies (`references/handoff-protocol.md`).
 | Field | Source | Notes |
 |---|---|---|
 | `status` / `delegate` / `model` / `log_file` / `output_file` / `summary` / `timestamp_utc` | wrapper | always written |
-| `files_changed` | wrapper, **auto-derived** | `git status --porcelain` snapshot diff (before vs after the Codex run), so it attributes edits to *this run only*. Empty `[]` when the repo is not a git work tree, when git is absent, or when the run changed nothing. A file already dirty before the run, with an unchanged porcelain status line, is intentionally not re-reported — if you need the full picture regardless of pre-run state, run `git diff HEAD` yourself. The wrapper's own log / sentinel / `result.json` files are written *after* the snapshot, so they never leak in. |
+| `files_changed` | wrapper, **auto-derived** | Before/after dirty-path status and content fingerprints, using NUL-delimited Git records. Includes additional edits to already-dirty tracked or untracked files, deletions, renames, and dirty paths restored to clean; unchanged pre-existing dirty files are excluded. Empty `[]` when Git is unavailable, the directory is not a work tree, or no observable delta exists. Logs/sidecars are written after the snapshot. This is best-effort observation, not proof of authorship: concurrent edits, ignored files, unreadable paths, and changes inside submodules need an independent audit. Reconcile with the actual candidate tree and run-specific baseline before acceptance. |
 | `tests_run` | **not auto-filled** — stays `[]` | The wrapper cannot see which tests ran: Codex runs them inside its own sandbox process and the wrapper only captures stdout. Treat `tests_run` as Claude's to fill during acceptance — run the brief's verification commands yourself and record them. |
 | `risks` | **not auto-filled** — stays `[]` | Risk assessment is a judgment call; it stays Claude's job. |
 
@@ -44,6 +44,12 @@ handoff replies (`references/handoff-protocol.md`).
 | `success` | Codex exited 0; no quota or hard error detected | Read the diff, run verification, decide acceptance |
 | `fallback` | Codex hit quota / rate limit | Take the work over directly in Claude |
 | `error` | Codex exited non-zero with a hard failure | Read `<log>.error` and `<log>` to diagnose |
+
+The wrapper keeps the historical `fallback` exit code of 0. A caller must read
+`status`; an exit code alone is not a successful task. A bare `429` in task
+output is not classified as quota: numeric matching requires HTTP/status
+context. Quota classification is still a text heuristic, not a native error
+code or automatic fallback execution.
 
 ## Quota fallback sentinel
 

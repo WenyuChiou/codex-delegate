@@ -68,15 +68,17 @@ OpenAI 有官方的 Codex × Claude Code 整合：
 
 ```text
 codex-delegate/
-├── SKILL.md
+├── .claude-plugin/plugin.json
 ├── README.md
 ├── README_zh-TW.md
-├── scripts/
+├── scripts/                  # canonical wrappers for repository consumers
 │   ├── run_codex.sh
 │   └── run_codex.ps1
-├── tests/
-│   └── test_wrappers.py
-└── references/
+├── skills/codex-delegate/
+│   ├── SKILL.md
+│   ├── scripts/              # byte-identical, self-contained skill mirrors
+│   └── references/
+└── tests/
 ```
 
 ## 測試
@@ -112,3 +114,15 @@ codex --version
 ## License
 
 MIT
+
+## 執行與封裝相容性
+
+Marketplace plugin 請從載入的 skill 使用
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh"`，不要假設 plugin
+安裝在 `~/.claude/skills/`。直接安裝 skill 目錄時使用
+`<skill-root>/scripts/run_codex.sh`；封裝內的 Bash／PowerShell wrapper
+與根目錄版本必須逐位元組一致。
+
+目前穩定 manifest 是 `0.1.0`，這個尚未發布的相容性修補提議 `0.1.1`。
+版本、`-C` 工作目錄契約與未驗證項目見
+[相容性紀錄](skills/codex-delegate/references/runtime-compatibility.md)。

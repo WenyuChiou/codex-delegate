@@ -8,9 +8,9 @@ Bash test:
   pollutes subprocess pipes. Skipif when git-bash isn't found so plain
   Windows hosts without Git for Windows skip cleanly instead of failing.
 
-PowerShell test:
-- Skipif when `powershell` isn't on PATH so the test is a no-op on
-  Linux / macOS runners.
+PowerShell tests:
+- Use pwsh or Windows PowerShell when installed. Native delegate doubles
+  use the host shell; Linux pwsh passes do not certify native Windows behavior.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -63,8 +63,62 @@ def to_bash_path(path: Path) -> str:
     return resolved.as_posix()
 
 
+def _brief_path_identity(value: str, platform: str | None = None):
+    """Compare the same full path across Git Bash and native Windows forms."""
+    platform = sys.platform if platform is None else platform
+    if platform == "win32":
+        # MSYS may retain /c/... or convert a native-process argument to
+        # C:/.... Both identify the same Windows file, not a different brief.
+        if len(value) >= 3 and value[0] == "/" and value[1].isalpha() and value[2] == "/":
+            value = value[1] + ":" + value[2:]
+        return PureWindowsPath(value)
+    return Path(value).resolve()
+
+
 _BASH = _resolve_bash()
 
+
+def _resolve_powershell(platform=None, which=None):
+    """Retain the original Windows PowerShell gate, add Core elsewhere."""
+    platform = sys.platform if platform is None else platform
+    which = shutil.which if which is None else which
+    names = ("powershell", "pwsh") if platform == "win32" else ("pwsh", "powershell")
+    return next((path for name in names if (path := which(name))), None)
+
+
+_POWERSHELL = _resolve_powershell()
+
+
+def _fake_ps_delegate(tmp_path: Path, *, output="delegate ok", edit=False,
+                      read_stdin=False, show_args=False, returncode=0) -> Path:
+    """Native command double; the real PowerShell wrapper still executes."""
+    if sys.platform == "win32":
+        fake = tmp_path / "codex.cmd"
+        body = "@echo off\r\n"
+        if edit:
+            body += 'echo delegated content>"%~5\\delegated_file.txt"\r\n'
+        if read_stdin:
+            body += "python -c \"import sys; print('stdin:[' + sys.stdin.read().strip() + ']')\"\r\n"
+        else:
+            body += "echo " + ("%*" if show_args else output) + "\r\n"
+        body += f"exit /b {returncode}\r\n"
+    else:
+        import shlex
+        fake = tmp_path / "codex.sh"
+        body = "#!/usr/bin/env bash\n"
+        if edit:
+            body += 'printf "delegated content\\n" > "$5/delegated_file.txt"\n'
+        if read_stdin:
+            body += "python -c \"import sys; print('stdin:[' + sys.stdin.read().strip() + ']')\"\n"
+        elif show_args:
+            body += 'printf "%s\\n" "$*"\n'
+        else:
+            body += "printf '%s\\n' " + shlex.quote(output) + "\n"
+        body += f"exit {returncode}\n"
+    fake.write_text(body, encoding="utf-8")
+    if sys.platform != "win32":
+        fake.chmod(0o755)
+    return fake
 
 @pytest.mark.skipif(_BASH is None, reason="bash (git-bash on Windows, system bash elsewhere) not available")
 def test_run_codex_sh_writes_result_contract(tmp_path: Path) -> None:
@@ -204,7 +258,7 @@ def test_run_codex_sh_files_changed_empty_when_not_git(tmp_path: Path) -> None:
     assert result["files_changed"] == []
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 @pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
 def test_run_codex_ps1_reports_files_changed(tmp_path: Path) -> None:
     """PowerShell wrapper: files_changed is auto-derived from git porcelain."""
@@ -213,13 +267,7 @@ def test_run_codex_ps1_reports_files_changed(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
 
     # Fake codex writes a file into the repo. %~5 is the `-C <repo>` value.
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text(
-        "@echo off\r\n"
-        'echo delegated content>"%~5\\delegated_file.txt"\r\n'
-        "echo delegate ok\r\n",
-        encoding="utf-8",
-    )
+    fake_codex = _fake_ps_delegate(tmp_path, edit=True)
 
     log_file = repo / ".ai" / "codex_ps_log.txt"
     env = os.environ.copy()
@@ -227,7 +275,7 @@ def test_run_codex_ps1_reports_files_changed(tmp_path: Path) -> None:
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -251,19 +299,13 @@ def test_run_codex_ps1_reports_files_changed(tmp_path: Path) -> None:
     assert result["files_changed"] == ["delegated_file.txt"]
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 def test_run_codex_ps1_files_changed_empty_when_not_git(tmp_path: Path) -> None:
     """PS wrapper: files_changed degrades to [] when the repo is not a git work tree."""
     repo = tmp_path / "repo"
     repo.mkdir()  # deliberately NOT a git repo
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text(
-        "@echo off\r\n"
-        'echo delegated content>"%~5\\delegated_file.txt"\r\n'
-        "echo delegate ok\r\n",
-        encoding="utf-8",
-    )
+    fake_codex = _fake_ps_delegate(tmp_path, edit=True)
 
     log_file = repo / ".ai" / "codex_ps_log.txt"
     env = os.environ.copy()
@@ -271,7 +313,7 @@ def test_run_codex_ps1_files_changed_empty_when_not_git(tmp_path: Path) -> None:
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -295,13 +337,12 @@ def test_run_codex_ps1_files_changed_empty_when_not_git(tmp_path: Path) -> None:
     assert result["files_changed"] == []
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 def test_run_codex_ps1_writes_result_contract(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text("@echo off\r\necho delegate ok\r\n", encoding="utf-8")
+    fake_codex = _fake_ps_delegate(tmp_path)
 
     log_file = repo / ".ai" / "codex_ps_log.txt"
     env = os.environ.copy()
@@ -309,7 +350,7 @@ def test_run_codex_ps1_writes_result_contract(tmp_path: Path) -> None:
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -340,7 +381,8 @@ def test_run_codex_ps1_writes_result_contract(tmp_path: Path) -> None:
 # research-hub v0.89.1 post-release audit found: inline --prompt dispatches
 # with no brief on disk left orphan results that couldn't be traced back.
 
-def _run_sh(repo: Path, fake_codex: Path, extra_args: list[str], env_extra: dict[str, str] | None = None):
+def _run_sh(repo: Path, fake_codex: Path, extra_args: list[str], env_extra: dict[str, str] | None = None, *, cwd: Path | None = None, wrapper: Path | None = None):
+    wrapper = wrapper or ROOT / "scripts" / "run_codex.sh"
     env = os.environ.copy()
     env["CODEX_PATH"] = to_bash_path(fake_codex)
     if env_extra:
@@ -355,10 +397,11 @@ def _run_sh(repo: Path, fake_codex: Path, extra_args: list[str], env_extra: dict
                 f"CODEX_PATH='{to_bash_path(fake_codex)}' "
                 + (f"CODEX_DELEGATE_ALLOW_INLINE='{env_extra['CODEX_DELEGATE_ALLOW_INLINE']}' "
                    if env_extra and "CODEX_DELEGATE_ALLOW_INLINE" in env_extra else "")
-                + f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(ROOT / 'scripts' / 'run_codex.sh')}' "
+                + f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(wrapper)}' "
                 f"--repo '{to_bash_path(repo)}' {cmd_args}"
             ),
         ],
+        cwd=cwd,
         capture_output=True,
         text=True,
         env=env,
@@ -477,7 +520,7 @@ def test_prompt_referencing_missing_brief_is_refused(tmp_path: Path) -> None:
     assert "does not exist on disk" in proc.stderr
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 def test_run_codex_ps1_brief_file_canonical_path(tmp_path: Path) -> None:
     """PowerShell parity: -BriefFile auto-derives log path next to brief."""
     repo = tmp_path / "repo"
@@ -485,15 +528,14 @@ def test_run_codex_ps1_brief_file_canonical_path(tmp_path: Path) -> None:
     brief = repo / ".ai" / "codex_task_v090_ps_audit.md"
     brief.write_text("# Brief\nDo X.\n", encoding="utf-8")
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text("@echo off\r\necho delegate ok\r\n", encoding="utf-8")
+    fake_codex = _fake_ps_delegate(tmp_path)
 
     env = os.environ.copy()
     env["CODEX_PATH"] = str(fake_codex)
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -572,18 +614,13 @@ def test_run_codex_sh_closes_codex_stdin(tmp_path: Path) -> None:
     assert "LEAKED_PARENT_STDIN" not in log
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 @pytest.mark.skipif(shutil.which("python") is None, reason="python not on PATH (fake codex needs it)")
 def test_run_codex_ps1_closes_codex_stdin(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text(
-        "@echo off\r\n"
-        "python -c \"import sys; print('stdin:[' + sys.stdin.read().strip() + ']')\"\r\n",
-        encoding="utf-8",
-    )
+    fake_codex = _fake_ps_delegate(tmp_path, read_stdin=True)
 
     log_file = repo / ".ai" / "codex_ps_log.txt"
     env = os.environ.copy()
@@ -591,7 +628,7 @@ def test_run_codex_ps1_closes_codex_stdin(tmp_path: Path) -> None:
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -616,14 +653,13 @@ def test_run_codex_ps1_closes_codex_stdin(tmp_path: Path) -> None:
     assert "LEAKED_PARENT_STDIN" not in log
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 def test_run_codex_ps1_inline_guard_fires(tmp_path: Path) -> None:
     """PowerShell parity: inline -Prompt > 500 chars with no brief is refused."""
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text("@echo off\r\necho should-not-run\r\n", encoding="utf-8")
+    fake_codex = _fake_ps_delegate(tmp_path, output="should-not-run")
 
     env = os.environ.copy()
     env["CODEX_PATH"] = str(fake_codex)
@@ -633,7 +669,7 @@ def test_run_codex_ps1_inline_guard_fires(tmp_path: Path) -> None:
     long_prompt = "x" * 600
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -711,20 +747,13 @@ def test_run_codex_sh_new_usage_limit_message_maps_to_fallback(tmp_path: Path) -
     )
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 def test_run_codex_ps1_new_usage_limit_message_maps_to_fallback(tmp_path: Path) -> None:
     """PowerShell parity for the codex-cli 0.144.x usage-limit wording."""
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text(
-        "@echo off\r\n"
-        "echo ERROR: You've hit your usage limit. Upgrade to Pro or visit"
-        " settings to purchase more credits or try again at Jul 25th. 1>&2\r\n"
-        "exit /b 1\r\n",
-        encoding="utf-8",
-    )
+    fake_codex = _fake_ps_delegate(tmp_path, output="ERROR: You've hit your usage limit. Upgrade to Pro or visit settings to purchase more credits or try again at Jul 25th.", returncode=1)
 
     log_file = repo / ".ai" / "codex_log.txt"
     env = os.environ.copy()
@@ -732,7 +761,7 @@ def test_run_codex_ps1_new_usage_limit_message_maps_to_fallback(tmp_path: Path) 
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -811,20 +840,14 @@ def test_run_codex_sh_exit0_with_quota_phrase_stays_success(tmp_path: Path) -> N
     assert not (repo / ".ai" / "codex_log.txt.fallback_claude").exists()
 
 
-@pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not on PATH")
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
 def test_run_codex_ps1_exit0_with_quota_phrase_stays_success(tmp_path: Path) -> None:
     """PowerShell parity: exit-0 output with an incidental quota phrase
     stays status=success (Test-QuotaError is gated on failure)."""
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    fake_codex = tmp_path / "codex.cmd"
-    fake_codex.write_text(
-        "@echo off\r\n"
-        "echo implemented the store page: users can purchase more credits\r\n"
-        "exit /b 0\r\n",
-        encoding="utf-8",
-    )
+    fake_codex = _fake_ps_delegate(tmp_path, output="implemented the store page: users can purchase more credits")
 
     log_file = repo / ".ai" / "codex_log.txt"
     env = os.environ.copy()
@@ -832,7 +855,7 @@ def test_run_codex_ps1_exit0_with_quota_phrase_stays_success(tmp_path: Path) -> 
 
     proc = subprocess.run(
         [
-            "powershell",
+            _POWERSHELL,
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -857,3 +880,141 @@ def test_run_codex_ps1_exit0_with_quota_phrase_stays_success(tmp_path: Path) -> 
         f"exit-0 run with incidental quota phrase must stay success, got {result['status']!r}"
     )
     assert not (repo / ".ai" / "codex_log.txt.fallback_claude").exists()
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+@pytest.mark.parametrize("brief_location", ["caller", "repo"])
+def test_relative_brief_resolves_before_codex_changes_cwd(tmp_path: Path, brief_location: str) -> None:
+    """The accepted brief and derived log must refer to the same physical file."""
+    repo = tmp_path / "repo with spaces"
+    caller = tmp_path / "caller"
+    repo.mkdir()
+    caller.mkdir()
+    owner = caller if brief_location == "caller" else repo
+    (owner / ".ai").mkdir()
+    brief = owner / ".ai" / "codex_task_contract.md"
+    brief.write_text("# Synthetic brief\nApply the stated mechanical edit.\n", encoding="utf-8")
+
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text(
+        "#!/usr/bin/env bash\n"
+        'cd "$5" || exit 90\n'
+        'prompt="${!#}"\n'
+        'brief="${prompt#Read }"\n'
+        'brief="${brief% and execute all instructions inside.}"\n'
+        '[[ -f "$brief" ]] || { echo "brief inaccessible from Codex cwd" >&2; exit 91; }\n'
+        'printf "brief:[%s]\\n" "$brief"\n',
+        encoding="utf-8", newline="\n",
+    )
+    proc = _run_sh(repo, fake_codex, ["--brief-file", ".ai/codex_task_contract.md"], cwd=caller)
+    assert proc.returncode == 0, proc.stderr
+    log = brief.with_suffix(".txt")
+    assert log.is_file(), "results must stay beside the accepted brief"
+    line = next(line for line in log.read_text(encoding="utf-8").splitlines()
+                if line.startswith("brief:[") and line.endswith("]"))
+    reported = line[len("brief:["):-1]
+    assert _brief_path_identity(reported) == _brief_path_identity(str(brief.resolve()))
+    result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success"
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_portable_skill_bash_wrapper_runs_without_repository_root(tmp_path: Path) -> None:
+    """Copy just the skill directory, as portable skill hosts do."""
+    installed = tmp_path / "isolated_skill"
+    shutil.copytree(ROOT / "skills" / "codex-delegate", installed)
+    repo = tmp_path / "repo"
+    (repo / ".ai").mkdir(parents=True)
+    brief = repo / ".ai" / "codex_task_packaged.md"
+    brief.write_text("# Synthetic brief\nApply the stated mechanical edit.\n", encoding="utf-8")
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n", encoding="utf-8", newline="\n")
+    proc = _run_sh(repo, fake_codex, ["--brief-file", to_bash_path(brief), "--model", "synthetic-model"],
+                   wrapper=installed / "scripts" / "run_codex.sh")
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(brief.with_suffix(".txt.result.json").read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success"
+    assert result["model"] == "codex/synthetic-model"
+    log = brief.with_suffix(".txt").read_text(encoding="utf-8")
+    assert "workspace-write" in log and to_bash_path(repo) in log
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("brief_location", ["caller", "repo"])
+def test_relative_brief_ps1_resolves_before_codex_changes_cwd(tmp_path: Path, brief_location: str) -> None:
+    """Windows parity for caller-first lookup and absolute prompt/log paths."""
+    repo = tmp_path / "repo with spaces"
+    caller = tmp_path / "caller"
+    repo.mkdir()
+    caller.mkdir()
+    owner = caller if brief_location == "caller" else repo
+    (owner / ".ai").mkdir()
+    brief = owner / ".ai/codex_task_contract.md"
+    brief.write_text("# Synthetic brief\nApply the stated mechanical edit.\n", encoding="utf-8")
+    fake_codex = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake_codex)
+    env.pop("CODEX_DELEGATE_ALLOW_INLINE", None)
+    proc = subprocess.run(
+        [_POWERSHELL, "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "scripts/run_codex.ps1"),
+         "-BriefFile", str(Path(".ai/codex_task_contract.md")), "-Repo", str(repo)],
+        cwd=caller, capture_output=True, text=True, env=env, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    log = brief.with_suffix(".txt")
+    assert log.is_file(), "results must stay beside the accepted brief"
+    assert str(brief) in log.read_text(encoding="utf-8-sig")
+    result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["status"] == "success"
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.ps1", "skills/codex-delegate/scripts/run_codex.ps1"])
+@pytest.mark.parametrize("status, delegate_code, output", [
+    ("success", 0, "delegate ok"),
+    ("error", 7, "synthetic delegate failure"),
+    ("fallback", 1, "ERROR: You've hit your usage limit"),
+])
+def test_default_powershell_log_and_result_stay_inside_repo(tmp_path: Path, status, delegate_code, output, wrapper_path):
+    repo = tmp_path / "repo with spaces"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, output=output, returncode=delegate_code)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    proc = subprocess.run([_POWERSHELL, "-NoLogo", "-NoProfile", "-File",
+                           str(ROOT / wrapper_path), "-Prompt", "do work",
+                           "-Repo", str(repo)], capture_output=True, text=True, env=env)
+    log = repo / ".ai/codex_output.txt"
+    result_path = Path(str(log) + ".result.json")
+    assert result_path.is_file(), (proc.returncode, proc.stderr, list(tmp_path.iterdir()))
+    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    assert result["status"] == status
+    assert result["log_file"] == str(log)
+    if status != "error":
+        assert log.is_file()
+    assert not list(tmp_path.glob("repo with spaces*result.json"))
+    sentinel = ".fallback_claude" if status == "fallback" else ".done" if status == "success" else ".error"
+    assert Path(str(log) + sentinel).is_file()
+
+
+@pytest.mark.parametrize("platform, available, expected", [
+    ("win32", {"powershell": "legacy", "pwsh": "core"}, "legacy"),
+    ("linux", {"powershell": "legacy", "pwsh": "core"}, "core"),
+    ("win32", {"pwsh": "core"}, "core"),
+    ("linux", {"powershell": "legacy"}, "legacy"),
+    ("win32", {}, None),
+])
+def test_powershell_resolver_preserves_windows_gate(platform, available, expected):
+    assert _resolve_powershell(platform, available.get) == expected
+
+
+@pytest.mark.parametrize("reported, expected, same", [
+    ("/c/Users/runner/caller/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", True),
+    (r"C:\Users\runner\caller\.ai\task.md", "/c/Users/runner/caller/.ai/task.md", True),
+    ("c:/Users/runner/caller/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", True),
+    ("/d/Users/runner/caller/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", False),
+    ("C:/Users/runner/repo/.ai/task.md", "C:/Users/runner/caller/.ai/task.md", False),
+    ("C:/Users/runner/caller/.ai/decoy.md", "C:/Users/runner/caller/.ai/task.md", False),
+])
+def test_windows_brief_path_identity_preserves_full_file_reference(reported, expected, same):
+    assert (_brief_path_identity(reported, "win32") == _brief_path_identity(expected, "win32")) is same
