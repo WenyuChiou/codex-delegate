@@ -67,15 +67,17 @@ from its `gpt-5-4-prompting` skill (Apache-2.0).
 
 ```text
 codex-delegate/
-├── SKILL.md
+├── .claude-plugin/plugin.json
 ├── README.md
 ├── README_zh-TW.md
-├── scripts/
+├── scripts/                  # canonical wrappers for repository consumers
 │   ├── run_codex.sh
 │   └── run_codex.ps1
-├── tests/
-│   └── test_wrappers.py
-└── references/
+├── skills/codex-delegate/
+│   ├── SKILL.md
+│   ├── scripts/              # byte-identical, self-contained skill mirrors
+│   └── references/
+└── tests/
 ```
 
 ## Testing
@@ -86,8 +88,10 @@ python -m pytest -q
 
 Current wrapper tests cover:
 
-- success-path `result.json` generation
-- PowerShell wrapper contract behavior
+- result contracts, quota/error classification, stdin closure, and changed-file snapshots
+- caller-relative/repo-relative brief resolution when Codex uses a different working root
+- canonical/packaged wrapper parity and isolated portable-skill execution
+- PowerShell parity (runs with pwsh or Windows PowerShell when available)
 
 ## Installation
 
@@ -97,6 +101,15 @@ Current wrapper tests cover:
 claude plugin marketplace add WenyuChiou/ai-research-skills
 claude plugin install codex-delegate@ai-research-skills
 ```
+
+For a marketplace plugin, invoke `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh"`
+from the loaded skill; the host resolves the plugin's versioned installation path.
+For direct portable-skill installations, use `<skill-root>/scripts/run_codex.sh`.
+Do not assume marketplace plugins live in `~/.claude/skills/`.
+
+Current stable manifest: `0.1.0`; this unreleased compatibility patch proposes
+`0.1.1`. See [runtime/package compatibility](skills/codex-delegate/references/runtime-compatibility.md)
+for the observed CLI version, current primary docs, and verification limits.
 
 Default scope is `user` (this OS account, all projects). Add
 `--scope project` to install only for the current project.

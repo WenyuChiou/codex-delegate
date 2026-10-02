@@ -1,13 +1,14 @@
 # Model Selection
 
-The wrapper defaults to `-m gpt-5.5` (bumped from `gpt-5.4` in commit `70e6fdc` on 2026-05-15). The choice is **not free** — see the trade-off table below — and the right choice depends on the task. Override per-call with `--model gpt-5.4` (bash wrapper) or `-Model gpt-5.4` (PowerShell) for cost-sensitive batch work, or pin a different default in `~/.codex/config.toml`:
+The wrapper defaults to `-m gpt-5.5` (bumped from `gpt-5.4` in commit `70e6fdc` on 2026-05-15). The choice is **not free** — see the trade-off table below — and the right choice depends on the task. Override per-call with `--model gpt-5.4` (bash wrapper) or `-Model gpt-5.4` (PowerShell) for cost-sensitive batch work. The wrapper always passes an explicit `-m`, so a CLI config default does not override it. For direct CLI use, a different default in `~/.codex/config.toml` uses a string, not a `[model]` table:
 
 ```toml
-[model]
-default = "gpt-5.4"
+model = "gpt-5.4"
 ```
 
-## Trade-off snapshot
+This example follows the [official configuration reference](https://developers.openai.com/codex/config-reference/). Model availability varies by account; inspect the interactive `/model` picker and override the wrapper per call.
+
+## Historical trade-off snapshot
 
 A/B run on a single `codex-delegate` invocation, identical prompt, fresh repo each side. Prompt: *"Write a Python function `fibonacci(n)` that returns the nth Fibonacci number using memoization. Include a 1-line docstring and a single inline comment explaining the base case. Output ONLY the function definition, no test code, no explanation."*
 
@@ -44,8 +45,7 @@ shorthand is a documentation convention: when the user (or a brief) says
 Reach for `spark` when the task is trivially mechanical and latency dominates —
 a fast first pass, a TDD-style loop, or a sweep where even `gpt-5.4` is more
 model than the edit needs. For anything where idiomatic style or subtle
-correctness matters, stay on the default. Confirm the exact name your CLI
-exposes with `codex models`.
+correctness matters, stay on the default. Confirm availability with the interactive `/model` picker; this is a historical model identifier, not a guarantee of current availability.
 
 ## How to A/B another task in your project
 
@@ -53,11 +53,11 @@ exposes with `codex models`.
 mkdir -p /tmp/codex-ab-test/{a,b}
 PROMPT="<your task>"
 
-bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh" \
   --prompt "$PROMPT" --repo /tmp/codex-ab-test/a \
   --log-file /tmp/codex-ab-test/a/log.txt --model gpt-5.4
 
-bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh" \
   --prompt "$PROMPT" --repo /tmp/codex-ab-test/b \
   --log-file /tmp/codex-ab-test/b/log.txt --model gpt-5.5
 

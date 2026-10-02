@@ -63,7 +63,7 @@ Two independent subtasks, run from Claude in parallel using `run_in_background=t
 Subtask A — generate tests:
 
 ```bash
-bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh" \
   --prompt "Read .ai/codex_task_tests.md and execute all instructions inside." \
   --repo "$PWD" \
   --log-file .ai/codex_log_tests.txt
@@ -72,7 +72,7 @@ bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
 Subtask B — refactor imports:
 
 ```bash
-bash ~/.claude/skills/codex-delegate/scripts/run_codex.sh \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/run_codex.sh" \
   --prompt "Read .ai/codex_task_imports.md and execute all instructions inside." \
   --repo "$PWD" \
   --log-file .ai/codex_log_imports.txt

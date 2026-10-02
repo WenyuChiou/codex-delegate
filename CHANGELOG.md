@@ -11,6 +11,21 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+- PowerShell Core uses the platform temporary directory and optional Windows
+  codepage command; real Linux pwsh regression execution retains task prompts.
+- Default PowerShell log/result paths use Join-Path; success, hard failure and
+  quota fallback keep their result contracts inside the expected repo/.ai path.
+
+Proposed Claude plugin manifest version: `0.1.1` (stable remains `0.1.0`;
+no tag or release is created by this patch).
+
+- Bundle canonical Bash/PowerShell wrappers inside the portable skill,
+  with byte-parity tests and an isolated-skill stub execution test.
+- Resolve accepted `--brief-file` paths before Codex applies `-C`, preserving
+  caller-first lookup and preventing caller/codex working-root mismatch.
+- Correct marketplace script paths, model-config precedence, and current
+  CLI guidance; record live-host and Windows verification limits.
+
 ### Fixed
 
 - `scripts/run_codex.sh` / `scripts/run_codex.ps1`: the quota-pattern
