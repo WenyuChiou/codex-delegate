@@ -11,6 +11,16 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+### Changed (manifest `0.1.2`)
+
+- The wrappers no longer hardcode `-m gpt-5.5`: without `--model` / `-Model`
+  they pass no `-m`, so Codex uses its own configured default model (the
+  hardcoded default returned HTTP 400 on an account without `gpt-5.5`).
+  `model_used`, the `[MODEL_USED: …]` log line and the `.done` sentinel report
+  `codex/default` in that case; tests cover both wrappers and both copies.
+
+### Changed (manifest `0.1.1`)
+
 - PowerShell Core uses the platform temporary directory and optional Windows
   codepage command; real Linux pwsh regression execution retains task prompts.
 - Default PowerShell log/result paths use Join-Path; success, hard failure and

@@ -43,7 +43,7 @@ PowerShell parameters: `-BriefFile` or `-Prompt`, `-Repo`, `-Model`, `-Sandbox`,
 If you skip the wrapper, close stdin explicitly to avoid a historical hang:
 
 ```bash
-codex exec --sandbox workspace-write -m gpt-5.5 \
+codex exec --sandbox workspace-write \
   "Read .ai/codex_task_<name>.md and execute all instructions inside." \
   < /dev/null > .ai/codex_log_<name>.txt 2>&1
 ```

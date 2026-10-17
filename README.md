@@ -116,8 +116,8 @@ from the loaded skill; the host resolves the plugin's versioned installation pat
 For direct portable-skill installations, use `<skill-root>/scripts/run_codex.sh`.
 Do not assume marketplace plugins live in `~/.claude/skills/`.
 
-Current stable manifest: `0.1.0`; this unreleased compatibility patch proposes
-`0.1.1`. See [runtime/package compatibility](skills/codex-delegate/references/runtime-compatibility.md)
+Current stable manifest: `0.1.0`; unreleased patches propose `0.1.2` (`0.1.1`:
+compatibility fixes; `0.1.2`: no built-in default model). See [runtime/package compatibility](skills/codex-delegate/references/runtime-compatibility.md)
 for the observed CLI version, current primary docs, and verification limits.
 
 Default scope is `user` (this OS account, all projects). Add

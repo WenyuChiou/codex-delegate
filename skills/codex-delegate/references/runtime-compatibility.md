@@ -56,7 +56,7 @@ quota spending, live delegate edits, and actual host loading remain unexecuted.
   skill/script topology, plugin-root substitution, and version pinning
 
 Current docs may redirect to newer documentation URLs; installed help is the
-source of truth for the exact runtime tested. Manifest `0.1.1` distinguishes
+source of truth for the exact runtime tested. A manifest version bump distinguishes
 updated packaged content for version-pinned installs; it does not itself
 install, update, publish, or invalidate anyone's local cache.
 

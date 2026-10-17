@@ -1,7 +1,7 @@
 param(
     [string]$Prompt = "",
     [string]$Repo = "",
-    [string]$Model = "gpt-5.5",
+    [string]$Model = "",
     [ValidateSet("read-only", "workspace-write")]
     [string]$Sandbox = "workspace-write",
     [string]$OutputFile = "",
@@ -248,7 +248,10 @@ $Prompt | Out-File -FilePath $promptFile -Encoding utf8
 $safePrompt = Get-Content $promptFile -Raw -Encoding utf8
 Remove-Item $promptFile -ErrorAction SilentlyContinue
 
-$codexArgs = @("exec", "--sandbox", $Sandbox, "-C", $Repo, "-m", $Model)
+$codexArgs = @("exec", "--sandbox", $Sandbox, "-C", $Repo)
+# Empty -Model = no -m flag, so codex uses its own configured default model.
+if ($Model) { $codexArgs += @("-m", $Model) }
+$modelLabel = if ($Model) { "codex/$Model" } else { "codex/default" }
 if ($OutputFile) { $codexArgs += @("-o", $OutputFile) }
 $codexArgs += $safePrompt
 $codexBin = if ($env:CODEX_PATH) { $env:CODEX_PATH } else { "codex" }
@@ -274,19 +277,19 @@ try {
         "ALL_QUOTA_EXCEEDED|$(Get-Date -Format o)" | Out-File $errorPath -Encoding utf8
         "FALLBACK_TO_CLAUDE|$(Get-Date -Format o)" | Out-File $fallbackPath -Encoding utf8
         "FALLBACK|$(Get-Date -Format o)" | Out-File $donePath -Encoding utf8
-        Write-ResultJson -Status "fallback" -ModelUsed "codex/$Model" -Summary "Codex quota exceeded; Claude must take over." -FilesChanged $filesChanged
+        Write-ResultJson -Status "fallback" -ModelUsed $modelLabel -Summary "Codex quota exceeded; Claude must take over." -FilesChanged $filesChanged
         exit 0
     }
 
     if ($exitCode -ne 0) {
         $output | Out-File $errorPath -Encoding utf8
-        Write-ResultJson -Status "error" -ModelUsed "codex/$Model" -Summary "Codex exited with a hard failure." -FilesChanged $filesChanged
+        Write-ResultJson -Status "error" -ModelUsed $modelLabel -Summary "Codex exited with a hard failure." -FilesChanged $filesChanged
         exit 1
     }
 
-    "[MODEL_USED: codex/$Model]`n$output" | Out-File $logPath -Encoding utf8
-    "DONE|codex/$Model|$(Get-Date -Format o)" | Out-File $donePath -Encoding utf8
-    Write-ResultJson -Status "success" -ModelUsed "codex/$Model" -Summary "Codex completed successfully. Claude must still review diff and run verification." -FilesChanged $filesChanged
+    "[MODEL_USED: $modelLabel]`n$output" | Out-File $logPath -Encoding utf8
+    "DONE|$modelLabel|$(Get-Date -Format o)" | Out-File $donePath -Encoding utf8
+    Write-ResultJson -Status "success" -ModelUsed $modelLabel -Summary "Codex completed successfully. Claude must still review diff and run verification." -FilesChanged $filesChanged
 }
 catch {
     $errMsg = $_.Exception.Message
@@ -304,11 +307,11 @@ catch {
         "ALL_QUOTA_EXCEEDED|$(Get-Date -Format o)" | Out-File $errorPath -Encoding utf8
         "FALLBACK_TO_CLAUDE|$(Get-Date -Format o)" | Out-File $fallbackPath -Encoding utf8
         "FALLBACK|$(Get-Date -Format o)" | Out-File $donePath -Encoding utf8
-        Write-ResultJson -Status "fallback" -ModelUsed "codex/$Model" -Summary "Codex quota exception triggered fallback to Claude." -FilesChanged $filesChanged
+        Write-ResultJson -Status "fallback" -ModelUsed $modelLabel -Summary "Codex quota exception triggered fallback to Claude." -FilesChanged $filesChanged
         exit 0
     }
 
     $errMsg | Out-File $errorPath -Encoding utf8
-    Write-ResultJson -Status "error" -ModelUsed "codex/$Model" -Summary "Codex exited with a hard failure." -FilesChanged $filesChanged
+    Write-ResultJson -Status "error" -ModelUsed $modelLabel -Summary "Codex exited with a hard failure." -FilesChanged $filesChanged
     exit 1
 }

@@ -9,7 +9,7 @@ The flag is `--sandbox workspace-write` on `codex-cli` 0.128.0+. The older `--fu
 ```bash
 cd /c/Users/wenyu/mispricing-engine && \
   echo "Extract all magic numbers from pipeline/risk_controls.py into named constants in pipeline/strategy_constants.py. Add descriptive names and comments. Update imports in risk_controls.py." \
-  | codex exec --sandbox workspace-write -m gpt-5.5
+  | codex exec --sandbox workspace-write
 ```
 
 ## Example 2: Generate Unit Tests (context file)
@@ -36,14 +36,14 @@ Launch:
 
 ```bash
 cd /c/Users/wenyu/mispricing-engine && \
-  cat .ai/codex_task_tests.md | codex exec --sandbox workspace-write -m gpt-5.5
+  cat .ai/codex_task_tests.md | codex exec --sandbox workspace-write
 ```
 
 ## Example 3: Code Review (review mode)
 
 ```bash
 cd /c/Users/wenyu/mispricing-engine && \
-  codex exec review --sandbox workspace-write -m gpt-5.5 </dev/null
+  codex exec review --sandbox workspace-write </dev/null
 ```
 
 `</dev/null` is required when no stdin is piped — `codex-cli >= 0.121.0` hangs at "Reading additional input from stdin..." otherwise.
@@ -53,7 +53,7 @@ cd /c/Users/wenyu/mispricing-engine && \
 ```bash
 cd /c/Users/wenyu/mispricing-engine && \
   echo "Rename all occurrences of kelly_optimizer to position_sizer across the entire codebase. Update imports, function calls, and string references. Do NOT rename the actual files." \
-  | codex exec --sandbox workspace-write -m gpt-5.5
+  | codex exec --sandbox workspace-write
 ```
 
 ## Example 5: Parallel Execution (independent subtasks)

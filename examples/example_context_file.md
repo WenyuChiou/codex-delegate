@@ -4,7 +4,7 @@
 #   1. Copy this file to .ai/codex_task_<name>.md in your repo
 #   2. Fill in each section below — be specific and include WHY not just WHAT
 #   3. Launch with:
-#      codex exec --sandbox workspace-write -C /path/to/repo -m gpt-5.5 "Read .ai/codex_task_<name>.md and execute all instructions."
+#      codex exec --sandbox workspace-write -C /path/to/repo "Read .ai/codex_task_<name>.md and execute all instructions."
 #   4. Review output, run tests, then commit if correct
 
 ## Context

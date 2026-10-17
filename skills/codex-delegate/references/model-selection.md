@@ -1,6 +1,6 @@
 # Model Selection
 
-The wrapper defaults to `-m gpt-5.5` (bumped from `gpt-5.4` in commit `70e6fdc` on 2026-05-15). The choice is **not free** — see the trade-off table below — and the right choice depends on the task. Override per-call with `--model gpt-5.4` (bash wrapper) or `-Model gpt-5.4` (PowerShell) for cost-sensitive batch work. The wrapper always passes an explicit `-m`, so a CLI config default does not override it. For direct CLI use, a different default in `~/.codex/config.toml` uses a string, not a `[model]` table:
+Since manifest `0.1.2` the wrapper passes no `-m` unless you give `--model` (bash wrapper) or `-Model` (PowerShell), so Codex uses its own configured default. Earlier versions always passed `-m gpt-5.5` (from commit `70e6fdc`, 2026-05-15), which fails with HTTP 400 on accounts that lose access to that model. The choice is **not free** — see the trade-off table below — so pass `--model <name>` per call when a task needs a specific model. An explicit `--model` becomes `-m <name>`, which overrides the `~/.codex/config.toml` default. The Codex default lives in `~/.codex/config.toml` as a string, not a `[model]` table:
 
 ```toml
 model = "gpt-5.4"
@@ -21,13 +21,13 @@ A/B run on a single `codex-delegate` invocation, identical prompt, fresh repo ea
 
 Both produced correct, runnable code. The semantic difference is style: `gpt-5.5` produced more idiomatic Python at significantly higher cost.
 
-## When to keep `gpt-5.5` (current default)
+## When to pick `gpt-5.5`
 
 - The output will be read by humans (production refactor, code-review prep, library code that ships).
 - Idiomatic style or subtle correctness (closure vs mutable default, generator vs list, dataclass vs dict, etc.) matters more than throughput.
 - The task is one-shot, not a sweep — the 3× token cost doesn't multiply across many calls.
 
-## When to override down to `gpt-5.4`
+## When to pick `gpt-5.4`
 
 - Mechanical sweeps across many files: boilerplate, batch edits, scaffolding, test harness generation. Token cost compounds quickly across N calls; gpt-5.4 is enough for these.
 - Token budget pressure (you are running parallel delegate sessions or the user has quota concerns).
@@ -45,7 +45,7 @@ shorthand is a documentation convention: when the user (or a brief) says
 Reach for `spark` when the task is trivially mechanical and latency dominates —
 a fast first pass, a TDD-style loop, or a sweep where even `gpt-5.4` is more
 model than the edit needs. For anything where idiomatic style or subtle
-correctness matters, stay on the default. Confirm availability with the interactive `/model` picker; this is a historical model identifier, not a guarantee of current availability.
+correctness matters, pick `gpt-5.5` or your configured default. Confirm availability with the interactive `/model` picker; this is a historical model identifier, not a guarantee of current availability.
 
 ## How to A/B another task in your project
 

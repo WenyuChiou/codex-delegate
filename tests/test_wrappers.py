@@ -157,7 +157,7 @@ def test_run_codex_sh_writes_result_contract(tmp_path: Path) -> None:
     result = json.loads(log_file.with_suffix(log_file.suffix + ".result.json").read_text(encoding="utf-8-sig"))
     assert result["status"] == "success"
     assert result["delegate"] == "codex"
-    assert result["model"] == "codex/gpt-5.5"
+    assert result["model"] == "codex/default"
     assert result["log_file"].endswith("/repo/.ai/codex_log.txt")
     assert (repo / ".ai" / "codex_log.txt.done").exists()
 
@@ -171,7 +171,7 @@ def test_run_codex_sh_reports_files_changed(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
 
     # Fake codex writes a file into the repo. Arg 5 is the `-C <repo>` value
-    # (codex args: exec --sandbox workspace-write -C <repo> -m <model> <prompt>).
+    # (codex args: exec --sandbox workspace-write -C <repo> [-m <model>] <prompt>).
     fake_codex = tmp_path / "fake_codex.sh"
     fake_codex.write_text(
         "#!/usr/bin/env bash\n"
@@ -372,7 +372,7 @@ def test_run_codex_ps1_writes_result_contract(tmp_path: Path) -> None:
     result = json.loads(log_file.with_suffix(log_file.suffix + ".result.json").read_text(encoding="utf-8-sig"))
     assert result["status"] == "success"
     assert result["delegate"] == "codex"
-    assert result["model"] == "codex/gpt-5.5"
+    assert result["model"] == "codex/default"
 
 
 # --- Brief discipline guard tests (added 2026-05-15) ---
@@ -995,6 +995,62 @@ def test_default_powershell_log_and_result_stay_inside_repo(tmp_path: Path, stat
     assert not list(tmp_path.glob("repo with spaces*result.json"))
     sentinel = ".fallback_claude" if status == "fallback" else ".done" if status == "success" else ".error"
     assert Path(str(log) + sentinel).is_file()
+
+
+# Without --model / -Model the wrapper must pass no -m, so codex uses its own
+# configured default (a hardcoded default broke once the account lost access).
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.sh", "skills/codex-delegate/scripts/run_codex.sh"])
+@pytest.mark.parametrize("model, expected_label", [(None, "codex/default"), ("synthetic-model", "codex/synthetic-model")])
+def test_run_codex_sh_passes_model_only_when_given(tmp_path: Path, wrapper_path, model, expected_label) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    log_file = repo / ".ai" / "codex_log.txt"
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n", encoding="utf-8", newline="\n")
+    extra = ["--prompt", "do work", "--log-file", to_bash_path(log_file)]
+    if model:
+        extra += ["--model", model]
+    proc = _run_sh(repo, fake_codex, extra, wrapper=ROOT / wrapper_path)
+    assert proc.returncode == 0, proc.stderr
+    args = log_file.read_text(encoding="utf-8").splitlines()
+    assert args[0] == f"[MODEL_USED: {expected_label}]"
+    assert "exec" in args
+    if model:
+        assert args[args.index("-m") + 1] == model
+    else:
+        assert "-m" not in args
+    result = json.loads(Path(str(log_file) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["model"] == expected_label
+    assert Path(str(log_file) + ".done").read_text(encoding="utf-8").startswith(f"DONE|{expected_label}|")
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.ps1", "skills/codex-delegate/scripts/run_codex.ps1"])
+@pytest.mark.parametrize("model, expected_label", [(None, "codex/default"), ("synthetic-model", "codex/synthetic-model")])
+def test_run_codex_ps1_passes_model_only_when_given(tmp_path: Path, wrapper_path, model, expected_label) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    cmd = [_POWERSHELL, "-NoLogo", "-NoProfile", "-File", str(ROOT / wrapper_path),
+           "-Prompt", "do work", "-Repo", str(repo)]
+    if model:
+        cmd += ["-Model", model]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert proc.returncode == 0, proc.stderr
+    log = repo / ".ai/codex_output.txt"
+    lines = log.read_text(encoding="utf-8-sig").splitlines()
+    assert lines[0] == f"[MODEL_USED: {expected_label}]"
+    tokens = " ".join(lines[1:]).split()
+    assert "exec" in tokens
+    if model:
+        assert tokens[tokens.index("-m") + 1] == model
+    else:
+        assert "-m" not in tokens
+    result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["model"] == expected_label
 
 
 @pytest.mark.parametrize("platform, available, expected", [

@@ -97,7 +97,8 @@ write_result_json() {
 PROMPT=""
 # Default --repo to the caller's working directory for portable installs.
 REPO="${PWD}"
-MODEL="gpt-5.5"
+# Empty = no -m flag, so codex uses its own configured default model.
+MODEL=""
 SANDBOX="workspace-write"
 OUTPUT_FILE=""
 LOG_FILE=""
@@ -233,8 +234,10 @@ is_quota_error() {
 PROMPT_FILE="$(mktemp /tmp/codex_prompt_XXXXXX.txt)"
 printf '%s' "$PROMPT" > "$PROMPT_FILE"
 
-CODEX_ARGS=("exec" "--sandbox" "$SANDBOX" "-C" "$REPO" "-m" "$MODEL")
+CODEX_ARGS=("exec" "--sandbox" "$SANDBOX" "-C" "$REPO")
+[[ -n "$MODEL" ]] && CODEX_ARGS+=("-m" "$MODEL")
 [[ -n "$OUTPUT_FILE" ]] && CODEX_ARGS+=("-o" "$OUTPUT_FILE")
+MODEL_LABEL="codex/${MODEL:-default}"
 CODEX_ARGS+=("$(cat "$PROMPT_FILE")")
 rm -f "$PROMPT_FILE"
 
@@ -263,20 +266,20 @@ if is_quota_error "$OUTPUT" "$EXIT_CODE"; then
     echo "ALL_QUOTA_EXCEEDED|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ERROR_PATH"
     echo "FALLBACK_TO_CLAUDE|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$FALLBACK_PATH"
     echo "FALLBACK|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DONE_PATH"
-    write_result_json "fallback" "codex/$MODEL" "Codex quota exceeded; Claude must take over." "$FILES_CHANGED_JSON"
+    write_result_json "fallback" "$MODEL_LABEL" "Codex quota exceeded; Claude must take over." "$FILES_CHANGED_JSON"
     exit 0
 fi
 
 if [[ "$EXIT_CODE" -ne 0 ]]; then
     echo "Codex hard failure (exit $EXIT_CODE)" >&2
     echo "$OUTPUT" > "$ERROR_PATH"
-    write_result_json "error" "codex/$MODEL" "Codex exited with a hard failure." "$FILES_CHANGED_JSON"
+    write_result_json "error" "$MODEL_LABEL" "Codex exited with a hard failure." "$FILES_CHANGED_JSON"
     exit 1
 fi
 
 {
-    echo "[MODEL_USED: codex/$MODEL]"
+    echo "[MODEL_USED: $MODEL_LABEL]"
     echo "$OUTPUT"
 } > "$LOG_PATH"
-echo "DONE|codex/$MODEL|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DONE_PATH"
-write_result_json "success" "codex/$MODEL" "Codex completed successfully. Claude must still review diff and run verification." "$FILES_CHANGED_JSON"
+echo "DONE|$MODEL_LABEL|$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DONE_PATH"
+write_result_json "success" "$MODEL_LABEL" "Codex completed successfully. Claude must still review diff and run verification." "$FILES_CHANGED_JSON"

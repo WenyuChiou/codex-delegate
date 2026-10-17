@@ -119,8 +119,8 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 ## Compatibility
 
 - Tested with `@openai/codex` 0.128.0–0.144.1 (May–July 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
-- Legacy wrapper default model: `gpt-5.5`; override explicitly via `--model` or `-Model`. Availability and pricing depend on the account and installed CLI. `references/model-selection.md` contains a historical A/B snapshot, not a current price guarantee. Use the interactive `/model` picker to inspect available models.
-- Wrapper calls `codex exec --sandbox workspace-write -C <repo> -m <model>`. In observed CLI `0.159.0-alpha.7`, `-C`/`--cd` selects a working-root directory, not a context file; `--full-auto` is absent. Check `codex exec --help` for your installed version. See `references/runtime-compatibility.md` for the primary-source checks and limits.
+- Wrapper default model: none. Without `--model` / `-Model` the wrapper passes no `-m`, so Codex uses its own configured default (reported as `codex/default`); pass `--model` or `-Model` to pick one. Availability and pricing depend on the account and installed CLI. `references/model-selection.md` contains a historical A/B snapshot, not a current price guarantee. Use the interactive `/model` picker to inspect available models.
+- Wrapper calls `codex exec --sandbox workspace-write -C <repo> [-m <model>]`. In observed CLI `0.159.0-alpha.7`, `-C`/`--cd` selects a working-root directory, not a context file; `--full-auto` is absent. Check `codex exec --help` for your installed version. See `references/runtime-compatibility.md` for the primary-source checks and limits.
 - `codex exec` is non-interactive. Sandbox selection is not blanket permission: the installed host's approval and policy settings still apply. The observed CLI has no exec-local `--ask-for-approval` option; do not infer bypassed approval or expand access from that absence.
 - Direct `codex exec` calls must close stdin (`</dev/null`) to avoid the historical hang (issue #20919).
 - PowerShell wrapper requires `$ErrorActionPreference` to NOT be `Stop` so stderr writes (warnings, banners) don't trip the catch block.
@@ -151,4 +151,4 @@ the discipline pays the context twice. For bidirectional multi-round work
 - `references/patterns.md` — five single-task delegation shapes (context file, parallel, resume, structured output, review mode)
 - `references/multi-agent.md` — leaf role in router/leaves architecture; when to route through `research-hub-multi-ai` or `agent-task-splitter`
 - `references/examples.md` — concrete invocation examples on `codex-cli` 0.128.0+ syntax
-- `references/model-selection.md` — `gpt-5.4` vs `gpt-5.5` trade-offs (A/B-tested) + when to override the default
+- `references/model-selection.md` — `gpt-5.4` vs `gpt-5.5` trade-offs (A/B-tested) + when to pass `--model`
