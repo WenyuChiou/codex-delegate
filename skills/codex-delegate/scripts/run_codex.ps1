@@ -7,11 +7,27 @@ param(
     [string]$OutputFile = "",
     [string]$LogFile = "",
     [string]$BriefFile = "",
-    [bool]$Synchronous = $true
+    [bool]$Synchronous = $true,
+    # Declared last so existing positional calls keep their bindings.
+    [string]$Effort = ""
 )
 
 # ValidateSet is case-insensitive, while Codex requires canonical values.
 $Sandbox = $Sandbox.ToLowerInvariant()
+
+# -Effort wins over CODEX_DELEGATE_EFFORT, which lets delegation default to a
+# cheaper effort without touching the interactive ~/.codex/config.toml.
+# "default" (or neither set) passes no override (parity with run_codex.sh).
+# Supported levels vary by model and CLI (Codex answers an unsupported one
+# with HTTP 400, reported as status "error"), so only the shape is checked.
+if (-not $Effort) { $Effort = "$env:CODEX_DELEGATE_EFFORT" }
+$Effort = $Effort.ToLowerInvariant()
+if ($Effort -eq "default") { $Effort = "" }
+if ($Effort -and $Effort -cnotmatch '^[a-z]+\z') {
+    [Console]::Error.WriteLine("Error: -Effort (or CODEX_DELEGATE_EFFORT) must be one word such as low, medium, high or xhigh, or default; got '$Effort'")
+    exit 2
+}
+$effortLabel = if ($Effort) { $Effort } else { "default" }
 
 # Default --repo to the caller's working directory.
 # Resolved here (not at param default) so it reflects the shell's PWD
@@ -161,6 +177,7 @@ function Write-ResultJson {
         ('  "status": ' + (ConvertTo-JsonScalar $Status) + ","),
         '  "delegate": "codex",',
         ('  "model": ' + (ConvertTo-JsonScalar $ModelUsed) + ","),
+        ('  "reasoning_effort": ' + (ConvertTo-JsonScalar $effortLabel) + ","),
         ('  "log_file": ' + (ConvertTo-JsonScalar $logPath) + ","),
         ('  "output_file": ' + (ConvertTo-JsonScalar $OutputFile) + ","),
         ('  "summary": ' + (ConvertTo-JsonScalar $Summary) + ","),
@@ -251,6 +268,7 @@ Remove-Item $promptFile -ErrorAction SilentlyContinue
 $codexArgs = @("exec", "--sandbox", $Sandbox, "-C", $Repo)
 # Empty -Model = no -m flag, so codex uses its own configured default model.
 if ($Model) { $codexArgs += @("-m", $Model) }
+if ($Effort) { $codexArgs += @("-c", "model_reasoning_effort=$Effort") }
 $modelLabel = if ($Model) { "codex/$Model" } else { "codex/default" }
 if ($OutputFile) { $codexArgs += @("-o", $OutputFile) }
 $codexArgs += $safePrompt

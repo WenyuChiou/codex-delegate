@@ -18,6 +18,7 @@ handoff replies (`references/handoff-protocol.md`).
   "status": "success|fallback|error",
   "delegate": "codex",
   "model": "codex/<model>",
+  "reasoning_effort": "<level passed, e.g. high>|default",
   "log_file": "<path>",
   "output_file": "<path or empty>",
   "summary": "",
@@ -33,6 +34,7 @@ handoff replies (`references/handoff-protocol.md`).
 | Field | Source | Notes |
 |---|---|---|
 | `status` / `delegate` / `model` / `log_file` / `output_file` / `summary` / `timestamp_utc` | wrapper | always written |
+| `reasoning_effort` | wrapper | always written (manifest `0.1.3`+): the effort passed as `-c model_reasoning_effort`, or `default` when none was passed and Codex's configured value applied |
 | `files_changed` | wrapper, **auto-derived** | Before/after dirty-path status and content fingerprints, using NUL-delimited Git records. Includes additional edits to already-dirty tracked or untracked files, deletions, renames, and dirty paths restored to clean; unchanged pre-existing dirty files are excluded. Empty `[]` when Git is unavailable, the directory is not a work tree, or no observable delta exists. Logs/sidecars are written after the snapshot. This is best-effort observation, not proof of authorship: concurrent edits, ignored files, unreadable paths, and changes inside submodules need an independent audit. Reconcile with the actual candidate tree and run-specific baseline before acceptance. |
 | `tests_run` | **not auto-filled** — stays `[]` | The wrapper cannot see which tests ran: Codex runs them inside its own sandbox process and the wrapper only captures stdout. Treat `tests_run` as Claude's to fill during acceptance — run the brief's verification commands yourself and record them. |
 | `risks` | **not auto-filled** — stays `[]` | Risk assessment is a judgment call; it stays Claude's job. |

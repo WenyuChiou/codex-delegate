@@ -20,10 +20,13 @@ its mechanical-only delegation boundary.
 
 ## Observed command contract
 
-`codex exec --sandbox workspace-write -C <repo> -m <model> [ -o <file> ] <prompt>`
+`codex exec --sandbox workspace-write -C <repo> [-m <model>] [-c model_reasoning_effort=<effort>] [ -o <file> ] <prompt>`
 uses a directory as `-C`/`--cd`; it does not attach a context file. The wrapper
-closes stdin. Its model option is explicit and therefore wins over CLI config
-model defaults. Installed help has no `codex models` command; use the
+closes stdin. It passes `-m` only for `--model` and `-c model_reasoning_effort`
+only for `--effort` / `CODEX_DELEGATE_EFFORT`; each then wins over the matching
+`~/.codex/config.toml` value, and otherwise that config applies. Codex 0.160.1
+rejects an unsupported effort with HTTP 400 (observed 2026-10-17), which the
+wrapper reports as `error`. Installed help has no `codex models` command; use the
 interactive `/model` picker for account-specific availability.
 
 The existing `success`/`fallback`/`error` result and sentinel contracts are

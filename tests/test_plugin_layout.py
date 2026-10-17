@@ -1,6 +1,7 @@
 """Skill-package checks require no host login or live model calls."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -23,8 +24,12 @@ def test_model_guidance_uses_supported_command_and_config_shape():
     selection = (ROOT / "skills/codex-delegate/references/model-selection.md").read_text(encoding="utf-8")
     assert "codex models" not in skill + selection
     assert '[model]\ndefault = ' not in selection
-    assert 'model = "gpt-5.4"' in selection
+    # Both defaults are plain strings, and the example pins no model id.
+    assert re.search(r'^model = "[^"\n]+"$', selection, re.MULTILINE)
+    assert re.search(r'^model_reasoning_effort = "(low|medium|high|xhigh)"$', selection, re.MULTILINE)
+    assert 'model = "gpt-' not in selection
     assert "explicit" in selection and "-m" in selection
+    assert "model_reasoning_effort=<value>" in selection
 
 
 def test_noninteractive_sandbox_does_not_advertise_blanket_approval():

@@ -83,6 +83,7 @@ write_result_json() {
         printf '  "status": %s,\n' "$(printf '%s' "$status" | json_escape)"
         printf '  "delegate": "codex",\n'
         printf '  "model": %s,\n' "$(printf '%s' "$model" | json_escape)"
+        printf '  "reasoning_effort": %s,\n' "$(printf '%s' "$EFFORT_LABEL" | json_escape)"
         printf '  "log_file": %s,\n' "$(printf '%s' "$LOG_PATH" | json_escape)"
         printf '  "output_file": %s,\n' "$(printf '%s' "$OUTPUT_FILE" | json_escape)"
         printf '  "summary": %s,\n' "$(printf '%s' "$summary" | json_escape)"
@@ -99,6 +100,8 @@ PROMPT=""
 REPO="${PWD}"
 # Empty = no -m flag, so codex uses its own configured default model.
 MODEL=""
+# Empty = no -c override, so codex uses its configured model_reasoning_effort.
+EFFORT=""
 SANDBOX="workspace-write"
 OUTPUT_FILE=""
 LOG_FILE=""
@@ -109,6 +112,7 @@ while [[ $# -gt 0 ]]; do
         --prompt)       PROMPT="$2";      shift 2 ;;
         --repo)         REPO="$2";        shift 2 ;;
         --model)        MODEL="$2";       shift 2 ;;
+        --effort)       EFFORT="$2";      shift 2 ;;
         --sandbox)      SANDBOX="$2";     shift 2 ;;
         --output-file)  OUTPUT_FILE="$2"; shift 2 ;;
         --log-file)     LOG_FILE="$2";    shift 2 ;;
@@ -122,6 +126,25 @@ case "$SANDBOX" in
     read-only|workspace-write) ;;
     *) echo "Error: --sandbox must be read-only or workspace-write" >&2; exit 2 ;;
 esac
+
+# --effort wins over CODEX_DELEGATE_EFFORT, which lets delegation default to a
+# cheaper effort without touching the interactive ~/.codex/config.toml.
+# "default" (or neither set) passes no override. Supported levels vary by
+# model and CLI (Codex answers an unsupported one with HTTP 400, reported as
+# status "error"), so only the shape is checked here: one lowercase word.
+EFFORT="${EFFORT:-${CODEX_DELEGATE_EFFORT:-}}"
+# Reject newlines before $(...) strips trailing ones (PowerShell parity).
+case "$EFFORT" in
+    *$'\n'*) echo "Error: --effort (or CODEX_DELEGATE_EFFORT) must be one word such as low, medium, high or xhigh, or default" >&2; exit 2 ;;
+esac
+EFFORT="$(printf '%s' "$EFFORT" | tr '[:upper:]' '[:lower:]')"
+case "$EFFORT" in
+    ""|default) EFFORT="" ;;
+    *[!abcdefghijklmnopqrstuvwxyz]*)
+        echo "Error: --effort (or CODEX_DELEGATE_EFFORT) must be one word such as low, medium, high or xhigh, or default; got '$EFFORT'" >&2
+        exit 2 ;;
+esac
+EFFORT_LABEL="${EFFORT:-default}"
 
 # Brief discipline: refuse inline prompts > 500 chars unless a brief is on disk.
 # Auditability gap fix (research-hub v0.89.1 post-release audit, 2026-05-15):
@@ -236,6 +259,7 @@ printf '%s' "$PROMPT" > "$PROMPT_FILE"
 
 CODEX_ARGS=("exec" "--sandbox" "$SANDBOX" "-C" "$REPO")
 [[ -n "$MODEL" ]] && CODEX_ARGS+=("-m" "$MODEL")
+[[ -n "$EFFORT" ]] && CODEX_ARGS+=("-c" "model_reasoning_effort=$EFFORT")
 [[ -n "$OUTPUT_FILE" ]] && CODEX_ARGS+=("-o" "$OUTPUT_FILE")
 MODEL_LABEL="codex/${MODEL:-default}"
 CODEX_ARGS+=("$(cat "$PROMPT_FILE")")

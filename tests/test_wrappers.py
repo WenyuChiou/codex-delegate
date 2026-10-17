@@ -395,8 +395,8 @@ def _run_sh(repo: Path, fake_codex: Path, extra_args: list[str], env_extra: dict
             (
                 f"chmod +x '{to_bash_path(fake_codex)}' && "
                 f"CODEX_PATH='{to_bash_path(fake_codex)}' "
-                + (f"CODEX_DELEGATE_ALLOW_INLINE='{env_extra['CODEX_DELEGATE_ALLOW_INLINE']}' "
-                   if env_extra and "CODEX_DELEGATE_ALLOW_INLINE" in env_extra else "")
+                # Inline so the login shell's profile cannot override them.
+                + "".join(f"{key}='{value}' " for key, value in (env_extra or {}).items())
                 + f"'{to_bash_path(Path(_BASH))}' '{to_bash_path(wrapper)}' "
                 f"--repo '{to_bash_path(repo)}' {cmd_args}"
             ),
@@ -1051,6 +1051,114 @@ def test_run_codex_ps1_passes_model_only_when_given(tmp_path: Path, wrapper_path
         assert "-m" not in tokens
     result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
     assert result["model"] == expected_label
+
+
+# --effort / -Effort beats CODEX_DELEGATE_EFFORT; neither (or "default") passes
+# no -c, so Codex keeps its configured model_reasoning_effort. Empty env means
+# "not set" and also shields the case from an ambient value.
+_EFFORT_CASES = [
+    # (flag, env, expected effort passed to codex or None)
+    (None, "", None),
+    ("high", "", "high"),
+    ("XHigh", "", "xhigh"),
+    (None, "medium", "medium"),
+    ("low", "high", "low"),
+    ("default", "high", None),
+    # Levels beyond xhigh vary by model; the wrapper forwards them unchecked.
+    ("max", "", "max"),
+]
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.sh", "skills/codex-delegate/scripts/run_codex.sh"])
+@pytest.mark.parametrize("flag, env_value, expected", _EFFORT_CASES)
+def test_run_codex_sh_passes_effort_only_when_given(tmp_path: Path, wrapper_path, flag, env_value, expected) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    log_file = repo / ".ai" / "codex_log.txt"
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n", encoding="utf-8", newline="\n")
+    extra = ["--prompt", "do work", "--log-file", to_bash_path(log_file)]
+    if flag:
+        extra += ["--effort", flag]
+    proc = _run_sh(repo, fake_codex, extra, {"CODEX_DELEGATE_EFFORT": env_value}, wrapper=ROOT / wrapper_path)
+    assert proc.returncode == 0, proc.stderr
+    args = log_file.read_text(encoding="utf-8").splitlines()
+    assert args[0] == "[MODEL_USED: codex/default]"
+    if expected:
+        assert args[args.index("-c") + 1] == f"model_reasoning_effort={expected}"
+    else:
+        assert "-c" not in args
+    result = json.loads(Path(str(log_file) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["reasoning_effort"] == (expected or "default")
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+@pytest.mark.parametrize("flag, env_value", [("x-high", ""), (None, "turbo2")])
+def test_run_codex_sh_rejects_unknown_effort(tmp_path: Path, flag, env_value) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    marker = tmp_path / "codex_ran"
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text(f"#!/usr/bin/env bash\ntouch '{to_bash_path(marker)}'\n", encoding="utf-8", newline="\n")
+    extra = ["--prompt", "do work"]
+    if flag:
+        extra += ["--effort", flag]
+    proc = _run_sh(repo, fake_codex, extra, {"CODEX_DELEGATE_EFFORT": env_value})
+    assert proc.returncode == 2
+    assert "must be one word" in proc.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.ps1", "skills/codex-delegate/scripts/run_codex.ps1"])
+@pytest.mark.parametrize("flag, env_value, expected", _EFFORT_CASES)
+def test_run_codex_ps1_passes_effort_only_when_given(tmp_path: Path, wrapper_path, flag, env_value, expected) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    env.pop("CODEX_DELEGATE_EFFORT", None)
+    if env_value:
+        env["CODEX_DELEGATE_EFFORT"] = env_value
+    cmd = [_POWERSHELL, "-NoLogo", "-NoProfile", "-File", str(ROOT / wrapper_path),
+           "-Prompt", "do work", "-Repo", str(repo)]
+    if flag:
+        cmd += ["-Effort", flag]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert proc.returncode == 0, proc.stderr
+    log = repo / ".ai/codex_output.txt"
+    lines = log.read_text(encoding="utf-8-sig").splitlines()
+    assert lines[0] == "[MODEL_USED: codex/default]"
+    tokens = " ".join(lines[1:]).split()
+    if expected:
+        assert tokens[tokens.index("-c") + 1] == f"model_reasoning_effort={expected}"
+    else:
+        assert "-c" not in tokens
+    result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["reasoning_effort"] == (expected or "default")
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("flag, env_value", [("x-high", ""), (None, "turbo2")])
+def test_run_codex_ps1_rejects_unknown_effort(tmp_path: Path, flag, env_value) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    env.pop("CODEX_DELEGATE_EFFORT", None)
+    if env_value:
+        env["CODEX_DELEGATE_EFFORT"] = env_value
+    cmd = [_POWERSHELL, "-NoLogo", "-NoProfile", "-File", str(ROOT / "scripts" / "run_codex.ps1"),
+           "-Prompt", "do work", "-Repo", str(repo)]
+    if flag:
+        cmd += ["-Effort", flag]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert proc.returncode == 2
+    assert "must be one word" in proc.stderr
+    assert not (repo / ".ai").exists()
 
 
 @pytest.mark.parametrize("platform, available, expected", [

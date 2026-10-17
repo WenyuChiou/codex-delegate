@@ -11,6 +11,28 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+### Added (manifest `0.1.3`)
+
+- Optional `--effort` / `-Effort <level|default>` passes
+  `-c model_reasoning_effort=<level>` to `codex exec`. The env var
+  `CODEX_DELEGATE_EFFORT` supplies a default when the flag is absent, so
+  delegation can run cheaper than the interactive `~/.codex/config.toml`
+  without editing it; the flag wins, and `default` (or neither set) passes
+  nothing. The value is lowercased and must be one word of letters (else
+  exit 2 before Codex runs); supported levels vary by model, so the wrapper
+  keeps no list and Codex's HTTP 400 for an unsupported one surfaces as
+  `status: error`. `-Effort` is declared last so existing positional
+  PowerShell calls keep their bindings.
+- `result.json` gains `reasoning_effort` (the value passed, or `default`).
+- `references/model-selection.md` no longer recommends `gpt-5.4` / `gpt-5.5`:
+  it explains both knobs, keeps the May A/B table as labelled historical
+  evidence, and shows an effort A/B. Tests cover both wrappers and both
+  copies, including precedence and invalid values.
+
+### Fixed (manifest `0.1.3`)
+
+- `references/runtime-compatibility.md` no longer says `-m` is always passed.
+
 ### Changed (manifest `0.1.2`)
 
 - The wrappers no longer hardcode `-m gpt-5.5`: without `--model` / `-Model`
