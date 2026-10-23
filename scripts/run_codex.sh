@@ -84,6 +84,7 @@ write_result_json() {
         printf '  "delegate": "codex",\n'
         printf '  "model": %s,\n' "$(printf '%s' "$model" | json_escape)"
         printf '  "reasoning_effort": %s,\n' "$(printf '%s' "$EFFORT_LABEL" | json_escape)"
+        printf '  "service_tier": %s,\n' "$(printf '%s' "$SERVICE_TIER_LABEL" | json_escape)"
         printf '  "log_file": %s,\n' "$(printf '%s' "$LOG_PATH" | json_escape)"
         printf '  "output_file": %s,\n' "$(printf '%s' "$OUTPUT_FILE" | json_escape)"
         printf '  "summary": %s,\n' "$(printf '%s' "$summary" | json_escape)"
@@ -102,6 +103,8 @@ REPO="${PWD}"
 MODEL=""
 # Empty = no -c override, so codex uses its configured model_reasoning_effort.
 EFFORT=""
+# Empty = no -c override, so codex uses its configured service_tier.
+SERVICE_TIER=""
 SANDBOX="workspace-write"
 OUTPUT_FILE=""
 LOG_FILE=""
@@ -113,6 +116,7 @@ while [[ $# -gt 0 ]]; do
         --repo)         REPO="$2";        shift 2 ;;
         --model)        MODEL="$2";       shift 2 ;;
         --effort)       EFFORT="$2";      shift 2 ;;
+        --service-tier) SERVICE_TIER="$2"; shift 2 ;;
         --sandbox)      SANDBOX="$2";     shift 2 ;;
         --output-file)  OUTPUT_FILE="$2"; shift 2 ;;
         --log-file)     LOG_FILE="$2";    shift 2 ;;
@@ -145,6 +149,21 @@ case "$EFFORT" in
         exit 2 ;;
 esac
 EFFORT_LABEL="${EFFORT:-default}"
+
+# --service-tier wins over CODEX_DELEGATE_SERVICE_TIER; "default" (or neither
+# set) passes no override. Only the shape is checked here: one lowercase word.
+SERVICE_TIER="${SERVICE_TIER:-${CODEX_DELEGATE_SERVICE_TIER:-}}"
+case "$SERVICE_TIER" in
+    *$'\n'*) echo "Error: --service-tier (or CODEX_DELEGATE_SERVICE_TIER) must be one word such as fast or flex, or default" >&2; exit 2 ;;
+esac
+SERVICE_TIER="$(printf '%s' "$SERVICE_TIER" | tr '[:upper:]' '[:lower:]')"
+case "$SERVICE_TIER" in
+    ""|default) SERVICE_TIER="" ;;
+    *[!abcdefghijklmnopqrstuvwxyz]*)
+        echo "Error: --service-tier (or CODEX_DELEGATE_SERVICE_TIER) must be one word such as fast or flex, or default; got '$SERVICE_TIER'" >&2
+        exit 2 ;;
+esac
+SERVICE_TIER_LABEL="${SERVICE_TIER:-default}"
 
 # Brief discipline: refuse inline prompts > 500 chars unless a brief is on disk.
 # Auditability gap fix (research-hub v0.89.1 post-release audit, 2026-05-15):
@@ -260,6 +279,7 @@ printf '%s' "$PROMPT" > "$PROMPT_FILE"
 CODEX_ARGS=("exec" "--sandbox" "$SANDBOX" "-C" "$REPO")
 [[ -n "$MODEL" ]] && CODEX_ARGS+=("-m" "$MODEL")
 [[ -n "$EFFORT" ]] && CODEX_ARGS+=("-c" "model_reasoning_effort=$EFFORT")
+[[ -n "$SERVICE_TIER" ]] && CODEX_ARGS+=("-c" "service_tier=\"$SERVICE_TIER\"")
 [[ -n "$OUTPUT_FILE" ]] && CODEX_ARGS+=("-o" "$OUTPUT_FILE")
 MODEL_LABEL="codex/${MODEL:-default}"
 CODEX_ARGS+=("$(cat "$PROMPT_FILE")")
