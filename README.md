@@ -100,7 +100,7 @@ Current wrapper tests cover:
 - result contracts, quota/error classification, stdin closure, and changed-file snapshots
 - caller-relative/repo-relative brief resolution when Codex uses a different working root
 - canonical/packaged wrapper parity and isolated portable-skill execution
-- `--model` / `--effort` pass-through only when given, including the `CODEX_DELEGATE_EFFORT` default and invalid-value refusal
+- `--model` / `--effort` / `--service-tier` pass-through only when given, including the `CODEX_DELEGATE_EFFORT` and `CODEX_DELEGATE_SERVICE_TIER` defaults and invalid-value refusal
 - PowerShell parity (runs with pwsh or Windows PowerShell when available)
 
 ## Installation
@@ -117,9 +117,10 @@ from the loaded skill; the host resolves the plugin's versioned installation pat
 For direct portable-skill installations, use `<skill-root>/scripts/run_codex.sh`.
 Do not assume marketplace plugins live in `~/.claude/skills/`.
 
-Current stable manifest: `0.1.0`; unreleased patches propose `0.1.3` (`0.1.1`:
+Current stable manifest: `0.1.0`; unreleased patches propose `0.1.4` (`0.1.1`:
 compatibility fixes; `0.1.2`: no built-in default model; `0.1.3`: optional
-`--effort` / `-Effort` and `CODEX_DELEGATE_EFFORT`). See [runtime/package compatibility](skills/codex-delegate/references/runtime-compatibility.md)
+`--effort` / `-Effort` and `CODEX_DELEGATE_EFFORT`; `0.1.4`: optional
+`--service-tier` / `-ServiceTier` and `CODEX_DELEGATE_SERVICE_TIER`). See [runtime/package compatibility](skills/codex-delegate/references/runtime-compatibility.md)
 for the observed CLI version, current primary docs, and verification limits.
 
 Default scope is `user` (this OS account, all projects). Add

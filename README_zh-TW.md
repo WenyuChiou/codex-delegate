@@ -91,7 +91,7 @@ python -m pytest -q
 
 - success path 的 `result.json` 輸出
 - PowerShell wrapper contract 行為
-- `--model` / `--effort` 只有指定時才傳給 Codex，含 `CODEX_DELEGATE_EFFORT` 預設值與無效值拒絕
+- `--model` / `--effort` / `--service-tier` 只有指定時才傳給 Codex，含 `CODEX_DELEGATE_EFFORT`、`CODEX_DELEGATE_SERVICE_TIER` 預設值與無效值拒絕
 
 ## 安裝
 
@@ -124,6 +124,6 @@ Marketplace plugin 請從載入的 skill 使用
 `<skill-root>/scripts/run_codex.sh`；封裝內的 Bash／PowerShell wrapper
 與根目錄版本必須逐位元組一致。
 
-目前穩定 manifest 是 `0.1.0`，尚未發布的修補提議 `0.1.3`（`0.1.1`：相容性修補；`0.1.2`：不再內建預設 model；`0.1.3`：可選的 `--effort` / `-Effort` 與 `CODEX_DELEGATE_EFFORT`）。
+目前穩定 manifest 是 `0.1.0`，尚未發布的修補提議 `0.1.4`（`0.1.1`：相容性修補；`0.1.2`：不再內建預設 model；`0.1.3`：可選的 `--effort` / `-Effort` 與 `CODEX_DELEGATE_EFFORT`；`0.1.4`：可選的 `--service-tier` / `-ServiceTier` 與 `CODEX_DELEGATE_SERVICE_TIER`）。
 版本、`-C` 工作目錄契約與未驗證項目見
 [相容性紀錄](skills/codex-delegate/references/runtime-compatibility.md)。

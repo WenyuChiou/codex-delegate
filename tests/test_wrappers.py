@@ -28,6 +28,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _clean_delegate_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CODEX_DELEGATE_EFFORT", raising=False)
+    monkeypatch.delenv("CODEX_DELEGATE_SERVICE_TIER", raising=False)
+
+
 def _resolve_bash() -> str | None:
     """Return a path to a bash interpreter we trust for the wrapper test.
 
@@ -1159,6 +1165,158 @@ def test_run_codex_ps1_rejects_unknown_effort(tmp_path: Path, flag, env_value) -
     assert proc.returncode == 2
     assert "must be one word" in proc.stderr
     assert not (repo / ".ai").exists()
+
+
+def _c_values(tokens: list[str]) -> list[str]:
+    return [tokens[i + 1] for i, tok in enumerate(tokens[:-1]) if tok == "-c"]
+
+
+_SERVICE_TIER_CASES = [
+    # (flag, env, expected tier passed to codex or None)
+    (None, "", None),
+    ("fast", "", "fast"),
+    ("Fast", "", "fast"),
+    (None, "fast", "fast"),
+    ("flex", "fast", "flex"),
+    ("default", "fast", None),
+]
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.sh", "skills/codex-delegate/scripts/run_codex.sh"])
+@pytest.mark.parametrize("flag, env_value, expected", _SERVICE_TIER_CASES)
+def test_run_codex_sh_passes_service_tier_only_when_given(tmp_path: Path, wrapper_path, flag, env_value, expected) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    log_file = repo / ".ai" / "codex_log.txt"
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n", encoding="utf-8", newline="\n")
+    extra = ["--prompt", "do work", "--log-file", to_bash_path(log_file)]
+    if flag:
+        extra += ["--service-tier", flag]
+    proc = _run_sh(repo, fake_codex, extra, {"CODEX_DELEGATE_SERVICE_TIER": env_value}, wrapper=ROOT / wrapper_path)
+    assert proc.returncode == 0, proc.stderr
+    args = log_file.read_text(encoding="utf-8").splitlines()
+    assert args[0] == "[MODEL_USED: codex/default]"
+    c_vals = _c_values(args)
+    if expected:
+        assert f'service_tier="{expected}"' in c_vals
+    else:
+        assert not any(v.startswith("service_tier=") for v in c_vals)
+    result = json.loads(Path(str(log_file) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["service_tier"] == (expected or "default")
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+@pytest.mark.parametrize("flag, env_value", [("fa-st", ""), (None, "turbo2")])
+def test_run_codex_sh_rejects_unknown_service_tier(tmp_path: Path, flag, env_value) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    marker = tmp_path / "codex_ran"
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text(f"#!/usr/bin/env bash\ntouch '{to_bash_path(marker)}'\n", encoding="utf-8", newline="\n")
+    extra = ["--prompt", "do work"]
+    if flag:
+        extra += ["--service-tier", flag]
+    proc = _run_sh(repo, fake_codex, extra, {"CODEX_DELEGATE_SERVICE_TIER": env_value})
+    assert proc.returncode == 2
+    assert "must be one word" in proc.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("wrapper_path", ["scripts/run_codex.ps1", "skills/codex-delegate/scripts/run_codex.ps1"])
+@pytest.mark.parametrize("flag, env_value, expected", _SERVICE_TIER_CASES)
+def test_run_codex_ps1_passes_service_tier_only_when_given(tmp_path: Path, wrapper_path, flag, env_value, expected) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    env.pop("CODEX_DELEGATE_SERVICE_TIER", None)
+    if env_value:
+        env["CODEX_DELEGATE_SERVICE_TIER"] = env_value
+    cmd = [_POWERSHELL, "-NoLogo", "-NoProfile", "-File", str(ROOT / wrapper_path),
+           "-Prompt", "do work", "-Repo", str(repo)]
+    if flag:
+        cmd += ["-ServiceTier", flag]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert proc.returncode == 0, proc.stderr
+    log = repo / ".ai/codex_output.txt"
+    lines = log.read_text(encoding="utf-8-sig").splitlines()
+    assert lines[0] == "[MODEL_USED: codex/default]"
+    tokens = " ".join(lines[1:]).split()
+    c_vals = _c_values(tokens)
+    if expected:
+        # Windows PowerShell 5.1 strips embedded double quotes when launching a native command, while PowerShell 7 keeps them.
+        assert any(v.replace('"', '') == f"service_tier={expected}" for v in c_vals)
+    else:
+        assert not any(v.replace('"', '').startswith("service_tier=") for v in c_vals)
+    result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["service_tier"] == (expected or "default")
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+@pytest.mark.parametrize("flag, env_value", [("fa-st", ""), (None, "turbo2")])
+def test_run_codex_ps1_rejects_unknown_service_tier(tmp_path: Path, flag, env_value) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    env.pop("CODEX_DELEGATE_SERVICE_TIER", None)
+    if env_value:
+        env["CODEX_DELEGATE_SERVICE_TIER"] = env_value
+    cmd = [_POWERSHELL, "-NoLogo", "-NoProfile", "-File", str(ROOT / "scripts" / "run_codex.ps1"),
+           "-Prompt", "do work", "-Repo", str(repo)]
+    if flag:
+        cmd += ["-ServiceTier", flag]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert proc.returncode == 2
+    assert "must be one word" in proc.stderr
+    assert not (repo / ".ai").exists()
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_run_codex_sh_combines_effort_and_service_tier(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    log_file = repo / ".ai" / "codex_log.txt"
+    fake_codex = tmp_path / "fake_codex.sh"
+    fake_codex.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n", encoding="utf-8", newline="\n")
+    extra = ["--prompt", "do work", "--log-file", to_bash_path(log_file), "--effort", "ultra", "--service-tier", "fast"]
+    proc = _run_sh(repo, fake_codex, extra)
+    assert proc.returncode == 0, proc.stderr
+    args = log_file.read_text(encoding="utf-8").splitlines()
+    c_vals = _c_values(args)
+    assert "model_reasoning_effort=ultra" in c_vals
+    assert 'service_tier="fast"' in c_vals
+    result = json.loads(Path(str(log_file) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["reasoning_effort"] == "ultra"
+    assert result["service_tier"] == "fast"
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="PowerShell runtime not on PATH")
+def test_run_codex_ps1_combines_effort_and_service_tier(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _fake_ps_delegate(tmp_path, show_args=True)
+    env = os.environ.copy()
+    env["CODEX_PATH"] = str(fake)
+    cmd = [_POWERSHELL, "-NoLogo", "-NoProfile", "-File", str(ROOT / "scripts" / "run_codex.ps1"),
+           "-Prompt", "do work", "-Repo", str(repo), "-Effort", "ultra", "-ServiceTier", "fast"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert proc.returncode == 0, proc.stderr
+    log = repo / ".ai/codex_output.txt"
+    lines = log.read_text(encoding="utf-8-sig").splitlines()
+    tokens = " ".join(lines[1:]).split()
+    c_vals = _c_values(tokens)
+    assert "model_reasoning_effort=ultra" in c_vals
+    # Windows PowerShell 5.1 strips embedded double quotes when launching a native command, while PowerShell 7 keeps them.
+    assert any(v.replace('"', '') == "service_tier=fast" for v in c_vals)
+    result = json.loads(Path(str(log) + ".result.json").read_text(encoding="utf-8-sig"))
+    assert result["reasoning_effort"] == "ultra"
+    assert result["service_tier"] == "fast"
 
 
 @pytest.mark.parametrize("platform, available, expected", [

@@ -20,10 +20,11 @@ its mechanical-only delegation boundary.
 
 ## Observed command contract
 
-`codex exec --sandbox workspace-write -C <repo> [-m <model>] [-c model_reasoning_effort=<effort>] [ -o <file> ] <prompt>`
+`codex exec --sandbox workspace-write -C <repo> [-m <model>] [-c model_reasoning_effort=<effort>] [-c service_tier="<tier>"] [ -o <file> ] <prompt>`
 uses a directory as `-C`/`--cd`; it does not attach a context file. The wrapper
-closes stdin. It passes `-m` only for `--model` and `-c model_reasoning_effort`
-only for `--effort` / `CODEX_DELEGATE_EFFORT`; each then wins over the matching
+closes stdin. It passes `-m` only for `--model`, `-c model_reasoning_effort`
+only for `--effort` / `CODEX_DELEGATE_EFFORT`, and `-c service_tier="<tier>"`
+only for `--service-tier` / `CODEX_DELEGATE_SERVICE_TIER`; each then wins over the matching
 `~/.codex/config.toml` value, and otherwise that config applies. Codex 0.160.1
 rejects an unsupported effort with HTTP 400 (observed 2026-10-17), which the
 wrapper reports as `error`. Installed help has no `codex models` command; use the

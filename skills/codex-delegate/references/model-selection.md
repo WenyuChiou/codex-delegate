@@ -1,13 +1,14 @@
-# Model and Effort Selection
+# Model, Effort and Service Tier Selection
 
-The wrapper has two optional knobs, and by default it turns neither:
+The wrapper has three optional knobs, and by default it turns none of them:
 
 | Knob | Bash / PowerShell | Passed to Codex as | Without it |
 |---|---|---|---|
 | Model | `--model <id>` / `-Model <id>` | `-m <id>` | `model` from `~/.codex/config.toml` (reported as `codex/default`) |
 | Reasoning effort | `--effort <level>` / `-Effort <level>` | `-c model_reasoning_effort=<value>` | `model_reasoning_effort` from `~/.codex/config.toml` (reported as `default`) |
+| Service tier | `--service-tier <value>` / `-ServiceTier <value>` | `-c service_tier="<value>"` | `service_tier` from `~/.codex/config.toml` (reported as `default`) |
 
-Since manifest `0.1.2` the wrapper passes no `-m` unless asked. Earlier versions always passed `-m gpt-5.5` (from commit `70e6fdc`, 2026-05-15), which fails with HTTP 400 on accounts that lose access to that model; the wrapper still has no built-in model id. Since manifest `0.1.3` it also passes no effort unless asked. Both Codex defaults live in `~/.codex/config.toml` as plain strings, not tables:
+Since manifest `0.1.2` the wrapper passes no `-m` unless asked. Earlier versions always passed `-m gpt-5.5` (from commit `70e6fdc`, 2026-05-15), which fails with HTTP 400 on accounts that lose access to that model; the wrapper still has no built-in model id. Since manifest `0.1.3` it also passes no effort unless asked. Since manifest `0.1.4` it also passes no service tier unless asked. The Codex defaults live in `~/.codex/config.toml` as plain strings, not tables:
 
 ```toml
 model = "<model id from the /model picker>"
@@ -31,6 +32,17 @@ Rough guide:
 - `high`: the usual delegated task, where the brief states the pattern and Claude reviews the diff.
 - `xhigh`: one-shot tasks where subtle correctness matters and the extra cost does not multiply across many calls.
 - `max` / `ultra`, where the model offers them: cost more than `xhigh`; rarely worth it for delegated mechanical work.
+
+## Service tier
+
+Service tier selects Codex's speed/usage tier when a call needs it:
+
+- **Per call:** `--service-tier fast` (bash) / `-ServiceTier fast` (PowerShell), or combined with effort: `--effort ultra --service-tier fast` (PowerShell: `-Effort ultra -ServiceTier fast`).
+- **For all delegations:** set `CODEX_DELEGATE_SERVICE_TIER` in the environment that runs the wrapper. Precedence is flag, then `CODEX_DELEGATE_SERVICE_TIER`, then `service_tier` in `~/.codex/config.toml`. `--service-tier default` (or `-ServiceTier default`) ignores the env var and passes nothing.
+
+The wrapper lowercases the value, checks only the shape (one word of letters `a-z`; anything else exits 2 before Codex runs), and passes `-c service_tier="<value>"`. It keeps no list of valid tiers, and what Codex does with an unsupported one is not established here (a config load accepted an arbitrary string on 2026-10-23), so a typo that passes the shape check can reach `result.json` as `service_tier` unchanged. Windows PowerShell 5.1 drops the embedded double quotes when launching `codex`, so the child receives the bare `service_tier=fast`; Codex's `-c` parser accepts both forms.
+
+Observed on Codex CLI 0.163.0 with model `gpt-6.1-sol`: `codex exec -c 'service_tier="fast"' ...` is accepted, and a test session's rollout file recorded `"service_tier":"priority"` (`priority` is the API name of the Fast tier). `~/.codex/models_cache.json` lists, for `gpt-6.1-sol`, `service_tiers: [{id: "priority", name: "Fast", description: "2x speed, increased usage"}]` and `additional_speed_tiers: ["fast"]`, and the Codex binary's config enum shows `fast` and `flex`. Fast spends more usage for speed, so it is a deliberate choice, not a default. Whether other models offer a tier is not established here; check the `/model` picker or the model cache.
 
 ## Choosing a model
 

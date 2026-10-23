@@ -8,8 +8,10 @@ param(
     [string]$LogFile = "",
     [string]$BriefFile = "",
     [bool]$Synchronous = $true,
-    # Declared last so existing positional calls keep their bindings.
-    [string]$Effort = ""
+    # Appended after the original parameters so existing positional calls
+    # keep their bindings; -ServiceTier follows the same rule.
+    [string]$Effort = "",
+    [string]$ServiceTier = ""
 )
 
 # ValidateSet is case-insensitive, while Codex requires canonical values.
@@ -28,6 +30,17 @@ if ($Effort -and $Effort -cnotmatch '^[a-z]+\z') {
     exit 2
 }
 $effortLabel = if ($Effort) { $Effort } else { "default" }
+
+# -ServiceTier wins over CODEX_DELEGATE_SERVICE_TIER; "default" (or neither
+# set) passes no override (parity with run_codex.sh). Only the shape is checked.
+if (-not $ServiceTier) { $ServiceTier = "$env:CODEX_DELEGATE_SERVICE_TIER" }
+$ServiceTier = $ServiceTier.ToLowerInvariant()
+if ($ServiceTier -eq "default") { $ServiceTier = "" }
+if ($ServiceTier -and $ServiceTier -cnotmatch '^[a-z]+\z') {
+    [Console]::Error.WriteLine("Error: -ServiceTier (or CODEX_DELEGATE_SERVICE_TIER) must be one word such as fast or flex, or default; got '$ServiceTier'")
+    exit 2
+}
+$serviceTierLabel = if ($ServiceTier) { $ServiceTier } else { "default" }
 
 # Default --repo to the caller's working directory.
 # Resolved here (not at param default) so it reflects the shell's PWD
@@ -178,6 +191,7 @@ function Write-ResultJson {
         '  "delegate": "codex",',
         ('  "model": ' + (ConvertTo-JsonScalar $ModelUsed) + ","),
         ('  "reasoning_effort": ' + (ConvertTo-JsonScalar $effortLabel) + ","),
+        ('  "service_tier": ' + (ConvertTo-JsonScalar $serviceTierLabel) + ","),
         ('  "log_file": ' + (ConvertTo-JsonScalar $logPath) + ","),
         ('  "output_file": ' + (ConvertTo-JsonScalar $OutputFile) + ","),
         ('  "summary": ' + (ConvertTo-JsonScalar $Summary) + ","),
@@ -269,6 +283,7 @@ $codexArgs = @("exec", "--sandbox", $Sandbox, "-C", $Repo)
 # Empty -Model = no -m flag, so codex uses its own configured default model.
 if ($Model) { $codexArgs += @("-m", $Model) }
 if ($Effort) { $codexArgs += @("-c", "model_reasoning_effort=$Effort") }
+if ($ServiceTier) { $codexArgs += @("-c", "service_tier=`"$ServiceTier`"") }
 $modelLabel = if ($Model) { "codex/$Model" } else { "codex/default" }
 if ($OutputFile) { $codexArgs += @("-o", $OutputFile) }
 $codexArgs += $safePrompt

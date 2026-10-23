@@ -11,6 +11,25 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+### Added (manifest `0.1.4`)
+
+- Optional `--service-tier` / `-ServiceTier <value|default>` passes
+  `-c service_tier="<value>"` to `codex exec`. The env var
+  `CODEX_DELEGATE_SERVICE_TIER` supplies a default when the flag is absent;
+  the flag wins over the env var, and `default` (or neither set) passes
+  nothing so `~/.codex/config.toml` applies. The value is lowercased and must
+  be one word of letters `a-z` (else exit 2 before Codex runs); the wrapper
+  keeps no list of valid tiers and does not check tier support. `-ServiceTier`
+  is declared last (after `-Effort`) so existing positional PowerShell calls
+  keep their bindings.
+- `result.json` gains `service_tier` (immediately after `reasoning_effort`: the
+  value passed, or `default` when none was passed).
+- `SKILL.md` and `references/` (`model-selection.md`, `wrapper.md`,
+  `output-contract.md`, `runtime-compatibility.md`) document the new option.
+  Tests in `tests/test_wrappers.py` cover pass-through on both wrappers and
+  both copies, plus precedence, invalid-value refusal (canonical copies),
+  combined `--effort` + `--service-tier`, and ambient env isolation.
+
 ### Added (manifest `0.1.3`)
 
 - Optional `--effort` / `-Effort <level|default>` passes

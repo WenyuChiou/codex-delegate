@@ -114,14 +114,15 @@ Full routing table and good/bad examples: `references/delegation-targets.md`.
 
 ## Output contract
 
-`.result.json` includes at minimum: `status` (success|fallback|error), `delegate` ("codex"), `model`, `reasoning_effort`, `log_file`, `output_file`, `summary`, `risks`, `files_changed`, `tests_run`, `timestamp_utc`. Full schema and status semantics: `references/output-contract.md`.
+`.result.json` includes at minimum: `status` (success|fallback|error), `delegate` ("codex"), `model`, `reasoning_effort`, `service_tier`, `log_file`, `output_file`, `summary`, `risks`, `files_changed`, `tests_run`, `timestamp_utc`. Full schema and status semantics: `references/output-contract.md`.
 
 ## Compatibility
 
 - Tested with `@openai/codex` 0.128.0–0.144.1 (May–July 2026). Should work with any version that accepts `codex exec --sandbox workspace-write`.
 - Wrapper default model: none. Without `--model` / `-Model` the wrapper passes no `-m`, so Codex uses its own configured default (reported as `codex/default`); pass `--model` or `-Model` to pick one. Availability and pricing depend on the account and installed CLI. `references/model-selection.md` contains a historical A/B snapshot, not a current price guarantee. Use the interactive `/model` picker to inspect available models.
 - Wrapper default reasoning effort: none. Without `--effort` / `-Effort` (or `CODEX_DELEGATE_EFFORT`) the wrapper passes no `-c model_reasoning_effort`, so the effort in `~/.codex/config.toml` applies (reported as `default`). Pass `--effort <level>` (for example `low`, `medium`, `high`, `xhigh`) per call, or set `CODEX_DELEGATE_EFFORT` so delegation defaults to a cheaper effort than interactive use; the flag wins over the env var. See `references/model-selection.md`.
-- Wrapper calls `codex exec --sandbox workspace-write -C <repo> [-m <model>] [-c model_reasoning_effort=<effort>]`. In observed CLI `0.159.0-alpha.7`, `-C`/`--cd` selects a working-root directory, not a context file; `--full-auto` is absent. Check `codex exec --help` for your installed version. See `references/runtime-compatibility.md` for the primary-source checks and limits.
+- Wrapper default service tier: none. Without `--service-tier` / `-ServiceTier` (or `CODEX_DELEGATE_SERVICE_TIER`) the wrapper passes no `-c service_tier`, so the tier in `~/.codex/config.toml` applies (reported as `default`). Pass `--service-tier <value>` (for example `fast` or `flex`) per call, or set `CODEX_DELEGATE_SERVICE_TIER`; the flag wins over the env var, and `default` passes nothing. See `references/model-selection.md`.
+- Wrapper calls `codex exec --sandbox workspace-write -C <repo> [-m <model>] [-c model_reasoning_effort=<effort>] [-c service_tier="<tier>"]`. In observed CLI `0.159.0-alpha.7`, `-C`/`--cd` selects a working-root directory, not a context file; `--full-auto` is absent. Check `codex exec --help` for your installed version. See `references/runtime-compatibility.md` for the primary-source checks and limits.
 - `codex exec` is non-interactive. Sandbox selection is not blanket permission: the installed host's approval and policy settings still apply. The observed CLI has no exec-local `--ask-for-approval` option; do not infer bypassed approval or expand access from that absence.
 - Direct `codex exec` calls must close stdin (`</dev/null`) to avoid the historical hang (issue #20919).
 - PowerShell wrapper requires `$ErrorActionPreference` to NOT be `Stop` so stderr writes (warnings, banners) don't trip the catch block.
@@ -152,4 +153,4 @@ the discipline pays the context twice. For bidirectional multi-round work
 - `references/patterns.md` — five single-task delegation shapes (context file, parallel, resume, structured output, review mode)
 - `references/multi-agent.md` — leaf role in router/leaves architecture; when to route through `research-hub-multi-ai` or `agent-task-splitter`
 - `references/examples.md` — concrete invocation examples on `codex-cli` 0.128.0+ syntax
-- `references/model-selection.md` — when to pass `--model` / `--effort`, plus a historical A/B snapshot of a cheaper vs a pricier model
+- `references/model-selection.md` — when to pass `--model` / `--effort` / `--service-tier`, plus a historical A/B snapshot of a cheaper vs a pricier model
