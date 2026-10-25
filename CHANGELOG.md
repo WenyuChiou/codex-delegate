@@ -11,6 +11,11 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-25
+
+This release collects the manifest 0.1.1–0.1.4 changes already merged through
+PR #13. The release-record update changes no wrapper behavior or defaults.
+
 ### Added (manifest `0.1.4`)
 
 - Optional `--service-tier` / `-ServiceTier <value|default>` passes
@@ -67,8 +72,8 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 - Default PowerShell log/result paths use Join-Path; success, hard failure and
   quota fallback keep their result contracts inside the expected repo/.ai path.
 
-Proposed Claude plugin manifest version: `0.1.1` (stable remains `0.1.0`;
-no tag or release is created by this patch).
+Historical 0.1.1 patch note: the proposed manifest was `0.1.1` while stable
+remained `0.1.0`; that compatibility patch created no tag or release.
 
 - Bundle canonical Bash/PowerShell wrappers inside the portable skill,
   with byte-parity tests and an isolated-skill stub execution test.
@@ -199,5 +204,6 @@ The wrapper default model changed during 0.x development:
   among multiple Codex sessions are handled by `research-hub-multi-ai`
   in the `ai-research-skills` catalog, not by this skill alone.
 
-[Unreleased]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.0...v0.1.4
 [0.1.0]: https://github.com/WenyuChiou/codex-delegate/releases/tag/v0.1.0
