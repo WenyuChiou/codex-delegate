@@ -11,6 +11,18 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-25
+
+### Fixed
+
+- Separate PowerShell startup/module loading from the deterministic wrapper
+  cases with a once-per-session, model-free probe capped at 60 seconds. The
+  first PowerShell case exceeded its 15-second limit on two hosted Ubuntu
+  runs; subsequent cases passed. Per-case limits and assertions stay unchanged,
+  and probe errors fail rather than skip or retry. No wrapper/runtime change.
+- Add command-double checks for the probe arguments, missing-shell behavior,
+  and propagation of timeout, command and executable errors.
+
 ## [0.1.4] - 2026-10-25
 
 This release collects the manifest 0.1.1–0.1.4 changes already merged through
@@ -204,6 +216,7 @@ The wrapper default model changed during 0.x development:
   among multiple Codex sessions are handled by `research-hub-multi-ai`
   in the `ai-research-skills` catalog, not by this skill alone.
 
-[Unreleased]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/WenyuChiou/codex-delegate/compare/v0.1.0...v0.1.4
 [0.1.0]: https://github.com/WenyuChiou/codex-delegate/releases/tag/v0.1.0
